@@ -2334,17 +2334,81 @@ body.dragmode { user-select: none; cursor: grabbing; }
     DBS.on = true;
   }
 
+
+  /* ---- Gemeinsame Daten über eine Online-Datenbank (Firebase Realtime Database, nur REST) ---- */
+  var RTS = { on: false, inited: false, base: {}, url: "", rev: null, busy: false, timer: null, warned: false };
+  var RT_ID_KEYS = ["trains", "orders"];
+  function rtSafe(id) { return String(id).replace(/[.#$\[\]\/]/g, "_"); }
+  function rtReq(method, path, body) {
+    return fetch(RTS.url + path, { method: method, body: body === undefined ? undefined : JSON.stringify(body) }).then(function (r) { if (!r.ok) throw new Error("http " + r.status); return r.json(); });
+  }
+  function rtParse(raw) {
+    var o = {}; if (!raw) return o;
+    SHARED_KEYS.forEach(function (k) {
+      var v = raw[k]; if (v === undefined || v === null) return;
+      if (RT_ID_KEYS.indexOf(k) >= 0) o[k] = Object.keys(v).map(function (sid) { try { return JSON.parse(v[sid]); } catch (e) { return null; } }).filter(Boolean);
+      else { try { o[k] = JSON.parse(v); } catch (e) { /* ignorieren */ } }
+    });
+    return o;
+  }
+  function rtApplyLocal() { state.staff = normStaff(state.staff); GROUPS = state.staff; BEREICHE = state.bereiche; if (state.rollen) ROLLEN = state.rollen; if (!state.poll) state.poll = {}; if (!state.absent) state.absent = []; if (!state.log) state.log = []; ensureOwner(); saveLocal(); }
+  function rtRender() { if (busyTyping()) { setTimeout(rtRender, 2000); return; } updateAll(); }
+  function rtMerge(remote) {
+    if (!RTS.inited) {
+      RTS.inited = true;
+      if (!Object.keys(remote).length) { RTS.base = {}; rtPush(); return; }
+      Object.keys(remote).forEach(function (k) { state[k] = remote[k]; }); rtApplyLocal(); RTS.base = JSON.parse(JSON.stringify(remote)); rtRender(); return;
+    }
+    var ops = []; rbDiff(RTS.base, remote, [], 0, ops); if (!ops.length) return;
+    var loc = sharedOf(); rbApply(loc, ops); Object.keys(loc).forEach(function (k) { state[k] = loc[k]; });
+    rtApplyLocal(); RTS.base = JSON.parse(JSON.stringify(remote)); rtRender();
+  }
+  function rtFail() { syncUI("Online-Datenbank nicht erreichbar. Änderungen werden nachgeholt."); }
+  function rtPush() {
+    if (!RTS.on || !RTS.inited) return;
+    if (RTS.busy) { clearTimeout(RTS.timer); RTS.timer = setTimeout(rtPush, 600); return; }
+    var cur = sharedOf(), ops = []; rbDiff(RTS.base, cur, [], 0, ops); if (!ops.length) return;
+    var upd = {};
+    ops.forEach(function (op) {
+      var k = op.p[0];
+      if (RT_ID_KEYS.indexOf(k) >= 0) {
+        if (op.p.length === 1) (cur[k] || []).forEach(function (it) { upd[k + "/" + rtSafe(it.id)] = JSON.stringify(it); });
+        else if (op.d) upd[k + "/" + rtSafe(op.p[1].id)] = null;
+        else upd[k + "/" + rtSafe(op.p[1].id)] = JSON.stringify(op.v);
+      } else upd[k] = cur[k] === undefined ? null : JSON.stringify(cur[k]);
+    });
+    upd.rev = Date.now() + Math.random().toString(36).slice(2, 6);
+    RTS.busy = true;
+    rtReq("PATCH", "/rb.json", upd).then(function () { RTS.base = cur; RTS.busy = false; syncUI("Mit der Online-Datenbank verbunden"); })
+      .catch(function () { RTS.busy = false; rtFail(); clearTimeout(RTS.timer); RTS.timer = setTimeout(rtPush, 4000); });
+  }
+  function rtPull() { return rtReq("GET", "/rb.json").then(function (raw) { RTS.rev = (raw && raw.rev) || null; rtMerge(rtParse(raw)); }); }
+  function rtPoll() {
+    if (!RTS.on || RTS.busy || busyTyping()) return;
+    var cur = sharedOf(), ops = []; rbDiff(RTS.base, cur, [], 0, ops); if (ops.length) { rtPush(); return; }
+    rtReq("GET", "/rb/rev.json").then(function (rev) { syncUI("Mit der Online-Datenbank verbunden"); if (rev === RTS.rev) return; return rtPull(); }).catch(rtFail);
+  }
+  function rtInit() {
+    var u = ""; try { var m = /[?&]db=([^&]+)/.exec(location.search); if (m) localStorage.setItem("rb-dburl", decodeURIComponent(m[1])); u = localStorage.getItem("rb-dburl") || ""; } catch (e) { /* ohne Speicher */ }
+    var pr = u ? Promise.resolve({ dbUrl: u }) : fetch("config.json", { cache: "no-store" }).then(function (r) { return r.ok ? r.json() : {}; });
+    pr.then(function (c) {
+      var url = ((c && c.dbUrl) || "").replace(/\/+$/, ""); if (!/^https?:\/\//.test(url)) return;
+      RTS.url = url;
+      return rtReq("GET", "/rb.json").then(function (raw) { RTS.on = true; RTS.rev = (raw && raw.rev) || null; rtMerge(rtParse(raw)); syncUI("Mit der Online-Datenbank verbunden"); setInterval(rtPoll, 2500); });
+    }).catch(function () {});
+  }
+
   /* ---- Gemeinsame Daten über den Raspberry-Pi-Server (nur wenn die App von dort geladen wird) ---- */
   var SYNC = { on: false, rev: 0, base: {}, busy: false, timer: null, fails: 0 };
   function sharedOf() { var o = {}; SHARED_KEYS.forEach(function (k) { if (state[k] !== undefined) o[k] = JSON.parse(JSON.stringify(state[k])); }); return o; }
-  function syncUI(txt) { var el = document.getElementById("syncInfo"); if (!el) return; el.hidden = !SYNC.on; el.textContent = txt || ""; }
+  function syncUI(txt) { var el = document.getElementById("syncInfo"); if (!el) return; el.hidden = !((SYNC && SYNC.on) || (RTS && RTS.on)); el.textContent = txt || ""; }
   function adoptShared(remote, rev) {
     SHARED_KEYS.forEach(function (k) { if (remote[k] !== undefined) state[k] = JSON.parse(JSON.stringify(remote[k])); });
     state.staff = normStaff(state.staff); GROUPS = state.staff; BEREICHE = state.bereiche; if (state.rollen) ROLLEN = state.rollen;
     if (!state.poll) state.poll = {}; if (!state.absent) state.absent = []; if (!state.log) state.log = [];
     ensureOwner(); saveLocal(); SYNC.rev = rev; SYNC.base = JSON.parse(JSON.stringify(remote));
   }
-  function syncSoon() { if (DBS && DBS.on && DBS.inited) { clearTimeout(DBS.timer); DBS.timer = setTimeout(dbPush, 300); } if (!SYNC || !SYNC.on) return; clearTimeout(SYNC.timer); SYNC.timer = setTimeout(syncNow, 250); }
+  function syncSoon() { if (RTS && RTS.on && RTS.inited) { clearTimeout(RTS.timer); RTS.timer = setTimeout(rtPush, 300); } if (DBS && DBS.on && DBS.inited) { clearTimeout(DBS.timer); DBS.timer = setTimeout(dbPush, 300); } if (!SYNC || !SYNC.on) return; clearTimeout(SYNC.timer); SYNC.timer = setTimeout(syncNow, 250); }
   function syncReq(url, body) {
     var o = body ? { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) } : {};
     return fetch(url, o).then(function (r) { if (!r.ok) throw new Error("http " + r.status); return r.json(); });
@@ -2385,7 +2449,7 @@ body.dragmode { user-select: none; cursor: grabbing; }
       else { SYNC.base = {}; SYNC.rev = res.rev || 0; syncNow(); }
       syncUI("Mit dem Server verbunden");
       setInterval(syncPoll, 2500);
-    }).catch(function () {});
+    }).catch(function () { rtInit(); });
   }
   buildMap();
   applyLayout();
