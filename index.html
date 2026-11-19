@@ -347,6 +347,10 @@ body.dragmode { user-select: none; cursor: grabbing; }
         <div class="menusec" id="loginBox"></div>
         <button class="btn" type="button" data-act="layout" id="layoutBtn">Layout anpassen</button>
         <button class="btn" type="button" data-act="sug" id="sugBtn">Verbesserungsvorschlag</button>
+        <button class="btn" type="button" data-act="expo" id="expoBtn">Einstellungen und Layouts exportieren</button>
+        <div class="sugform" id="expoForm" hidden><label class="meta" for="expo-t">Dieser Text enthält Mitarbeiter, Rollen, Bereiche, Schichtplan, Logo und alle Layouts. Kopiere ihn und füge ihn im anderen Gerät unter «importieren» ein.</label><textarea id="expo-t" rows="5" readonly></textarea><button class="btn pri small" type="button" data-act="expocopy">Kopieren</button></div>
+        <button class="btn" type="button" data-act="impo" id="impoBtn">Einstellungen und Layouts importieren</button>
+        <div class="sugform" id="impoForm" hidden><label class="meta" for="impo-t">Exportierten Text hier einfügen. Bestehende Einstellungen und Layouts werden ersetzt.</label><textarea id="impo-t" rows="5" placeholder="Text einfügen …"></textarea><button class="btn pri small" type="button" data-act="impoapply">Übernehmen</button></div>
         <div class="sugform" id="sugForm" hidden><label class="meta" for="sug-t">Was können wir besser machen?</label><textarea id="sug-t" rows="4" placeholder="Dein Vorschlag …"></textarea><button class="btn pri small" type="button" data-act="sugsend">Senden</button></div>
         <div class="meta" id="syncInfo" hidden></div>
         <div class="wm" aria-hidden="true">Pascal Rohrbach</div>
@@ -599,7 +603,7 @@ body.dragmode { user-select: none; cursor: grabbing; }
       } else if (op.d) delete par[last]; else par[last] = op.v;
     });
   }
-  var SHARED_KEYS = ["trains", "orders", "seq", "nextNo", "sim", "absent", "log", "poll", "shifts", "staff", "bereiche", "quals", "roles", "rollen", "rolePerms", "bereichOpt", "logo"];
+  var SHARED_KEYS = ["trains", "orders", "seq", "nextNo", "sim", "absent", "log", "poll", "shifts", "staff", "bereiche", "quals", "roles", "rollen", "rolePerms", "bereichOpt", "logo", "layouts", "layLast", "subCfg"];
   /*OPS-END*/
   function saveLocal() { try { localStorage.setItem(KEY, JSON.stringify(state)); } catch (e) { /* ohne Speicher weiterarbeiten */ } }
   function save() { saveLocal(); if (typeof syncSoon === "function") syncSoon(); }
@@ -1794,6 +1798,24 @@ body.dragmode { user-select: none; cursor: grabbing; }
     else if (act === "democlear") { if (!admOK()) return; clearDemo(); }
     else if (act === "menu") { setMenu(!ui.menu); }
     else if (act === "loginopen") { var lw = $("#loginFormWrap"); if (lw) { lw.hidden = !lw.hidden; if (!lw.hidden && $("#lg-u")) $("#lg-u").focus(); } }
+    else if (act === "expo") {
+      var ex = JSON.stringify({ rbexport: 1, config: cfgPayload(), layouts: state.layouts || {}, layLast: state.layLast || {}, subCfg: state.subCfg || {} }), ef = $("#expoForm"), et = $("#expo-t");
+      if (ef && et) { ef.hidden = false; et.value = ex; et.focus(); et.select(); }
+      try { navigator.clipboard.writeText(ex).then(function () { toast("In die Zwischenablage kopiert."); }, function () { toast("Text markiert: mit Strg+C kopieren."); }); } catch (xe) { toast("Text markiert: mit Strg+C kopieren."); }
+    }
+    else if (act === "expocopy") { var et2 = $("#expo-t"); if (et2) { et2.focus(); et2.select(); try { navigator.clipboard.writeText(et2.value).then(function () { toast("Kopiert."); }, function () { toast("Mit Strg+C kopieren."); }); } catch (xe2) { toast("Mit Strg+C kopieren."); } } }
+    else if (act === "impo") { var imf = $("#impoForm"); if (imf) { imf.hidden = !imf.hidden; if (!imf.hidden && $("#impo-t")) $("#impo-t").focus(); } }
+    else if (act === "impoapply") {
+      var it = $("#impo-t"), im = null; try { im = JSON.parse((it && it.value || "").trim()); } catch (xi) { im = null; }
+      if (!im || im.rbexport !== 1 || !im.config || !im.config.staff || !Array.isArray(im.config.bereiche)) { toast("Der Text passt nicht. Bitte den ganzen exportierten Text einfügen."); return; }
+      var ic = im.config;
+      state.staff = normStaff(ic.staff); GROUPS = state.staff; state.bereiche = ic.bereiche.slice(); BEREICHE = state.bereiche;
+      state.quals = ic.quals || {}; state.roles = ic.roles || {}; if (Array.isArray(ic.rollen) && ic.rollen.length) { state.rollen = ic.rollen.slice(); ROLLEN = state.rollen; }
+      state.rolePerms = ic.rolePerms || {}; state.bereichOpt = ic.bereichOpt || {}; state.logo = ic.logo || ""; if (ic.shifts && ic.shifts.defs) state.shifts = ic.shifts;
+      state.layouts = im.layouts || {}; state.layLast = im.layLast || {}; state.subCfg = im.subCfg || {};
+      ensureOwner(); state.cfgAt = Date.now(); saveConfig(); applyLayout(); updateAll(); setMenu(false);
+      toast("Übernommen: Mitarbeiter, Rollen, Bereiche, Schichtplan und Layouts.");
+    }
     else if (act === "sug") { var sf = $("#sugForm"); if (sf) { sf.hidden = !sf.hidden; if (!sf.hidden && $("#sug-t")) $("#sug-t").focus(); } }
     else if (act === "sugsend") {
       var stx = ($("#sug-t") || {}).value; stx = (stx || "").trim(); if (!stx) { toast("Bitte einen Vorschlag eingeben."); return; }
@@ -2352,7 +2374,7 @@ body.dragmode { user-select: none; cursor: grabbing; }
     return o;
   }
   function rtApplyLocal() { state.staff = normStaff(state.staff); GROUPS = state.staff; BEREICHE = state.bereiche; if (state.rollen) ROLLEN = state.rollen; if (!state.poll) state.poll = {}; if (!state.absent) state.absent = []; if (!state.log) state.log = []; ensureOwner(); saveLocal(); }
-  function rtRender() { if (busyTyping()) { setTimeout(rtRender, 2000); return; } updateAll(); }
+  function rtRender() { if (busyTyping()) { setTimeout(rtRender, 2000); return; } applyLayout(); updateAll(); }
   function rtMerge(remote) {
     if (!RTS.inited) {
       RTS.inited = true;
