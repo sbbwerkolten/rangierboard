@@ -1,0 +1,17 @@
+{
+  "name": "Rangier-Board Werk Olten",
+  "short_name": "Rangierboard",
+  "description": "Verschiebungen, Koordination und Gleisspiegel im Werk Olten",
+  "lang": "de-CH",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#E7EBEE",
+  "theme_color": "#0B4F8F",
+  "icons": [
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}
