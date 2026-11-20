@@ -317,6 +317,24 @@ svg#map { display: block; width: 100%; height: auto; max-width: 100%; user-selec
 .menusec .loginf input { width: 100%; }
 .sugform { display: grid; gap: 6px; }
 .sugform[hidden], #loginFormWrap[hidden] { display: none; }
+.cover { position: fixed; inset: 0; z-index: 100; overflow: auto; background: var(--bg); color: var(--ink); padding: max(16px, env(safe-area-inset-top, 0px)) max(16px, env(safe-area-inset-right, 0px)) max(24px, env(safe-area-inset-bottom, 0px)) max(16px, env(safe-area-inset-left, 0px)); }
+.cover[hidden] { display: none; }
+body.covered { overflow: hidden; }
+body.covered #toast { z-index: 200; bottom: 24px; }
+.cv-in { max-width: 1280px; margin: 0 auto; display: grid; gap: 20px; }
+.cv-top { display: flex; align-items: center; gap: 18px; flex-wrap: wrap; padding: 8px 0 4px; border-bottom: 3px solid var(--accent); }
+.cv-top .logoslot img { height: 56px; max-width: 280px; object-fit: contain; display: block; }
+.cv-top h1 { margin: 0; font-size: clamp(28px, 5vw, 46px); line-height: 1.1; letter-spacing: -.01em; text-wrap: balance; }
+.cv-top p { margin: 4px 0 0; color: var(--ink-2); font-size: clamp(14px, 2vw, 17px); }
+.cv-grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: 20px; align-items: start; }
+@media (min-width: 1040px) { .cv-grid { grid-template-columns: minmax(0, 1fr) 340px; } }
+.cv-card { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 16px; display: grid; gap: 12px; min-width: 0; }
+.cv-card h2 { margin: 0; font-size: 18px; }
+.cv-login form { display: grid; gap: 10px; }
+.cv-login label { display: grid; gap: 4px; font-size: 13px; color: var(--ink-2); }
+.cv-login input { font: inherit; font-size: 16px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); color: var(--ink); min-height: 44px; }
+.cv-login .btn { min-height: 44px; }
+svg#coverMap { display: block; width: 100%; height: auto; pointer-events: none; user-select: none; -webkit-user-select: none; }
 .wm { text-align: right; font-size: 11px; letter-spacing: .06em; color: var(--ink-2); opacity: .5; margin-top: 4px; }
 .rsz { display: none; }
 body.editlayout .tile .rsz { display: block; position: absolute; right: -6px; bottom: -6px; width: 20px; height: 20px; cursor: nwse-resize; background: linear-gradient(135deg, transparent 50%, var(--accent) 50%); border-radius: 0 0 6px 0; touch-action: none; z-index: 5; }
@@ -406,6 +424,18 @@ body.dragmode { user-select: none; cursor: grabbing; }
   </div>
   <div class="tile" data-tile="detail"><div class="detail" id="detail"></div></div>
   <div class="tile" data-tile="log"><div class="detail"><h3>Letzte Meldungen</h3><ul class="log" id="log"></ul></div></div>
+</div>
+<div class="cover" id="cover" role="dialog" aria-modal="true" aria-labelledby="cv-title" hidden>
+  <div class="cv-in">
+    <header class="cv-top"><div class="logoslot" id="cvLogo" hidden></div><div><h1 id="cv-title">Rangierboard Werk Olten</h1><p>Verschiebungen bestellen, koordinieren und auf dem Gleisplan verfolgen</p></div></header>
+    <div class="cv-grid">
+      <section class="cv-card" aria-label="Aktueller Gleisplan">
+        <div class="mapHead"><h2>Aktueller Gleisplan</h2><span class="live"><i></i><span>Live, nur Ansicht</span></span></div>
+        <div class="mapBox"><svg id="coverMap" viewBox="0 0 1060 560" role="img" aria-label="Schematischer Gleisplan Werk Olten, nur Ansicht"></svg></div>
+      </section>
+      <section class="cv-card cv-login" aria-label="Anmeldung"><h2>Anmelden</h2><div id="cvLoginBody"></div></section>
+    </div>
+  </div>
 </div>
 <div id="toast" role="status" aria-live="polite"></div>
 
@@ -1629,12 +1659,38 @@ body.dragmode { user-select: none; cursor: grabbing; }
     box.innerHTML = k ? '<span class="chip c-ok">Angemeldet: ' + esc(k) + '</span><button class="btn" type="button" data-act="logout">Abmelden</button>' :
       '<button class="btn pri" type="button" data-act="loginopen">Anmelden</button><div id="loginFormWrap" hidden><form id="loginForm" class="loginf" autocomplete="on"><input type="text" id="lg-u" placeholder="Benutzername" aria-label="Benutzername" autocomplete="username" autocapitalize="off"><input type="password" id="lg-p" placeholder="Passwort" aria-label="Passwort" autocomplete="current-password"><button class="btn small pri" type="submit">Los</button></form></div>';
   }
-  function doLogin() {
-    var u = (($("#lg-u") || {}).value || "").trim().toLowerCase(), h = hashPw(($("#lg-p") || {}).value || ""), found = "";
+  function coverVisible() { var c = $("#cover"); return !!c && !c.hidden; }
+  function cvRefresh() {
+    var m = $("#map"), c = $("#coverMap"); if (!m || !c) return;
+    c.innerHTML = m.innerHTML; Array.prototype.forEach.call(c.querySelectorAll("[tabindex],[role]"), function (e) { e.removeAttribute("tabindex"); e.removeAttribute("role"); });
+  }
+  function renderCover() {
+    var lg = $("#cvLogo"); if (lg) { if (state.logo) { lg.innerHTML = '<img alt="Logo" src="' + state.logo + '">'; lg.hidden = false; } else { lg.innerHTML = ""; lg.hidden = true; } }
+    var b = $("#cvLoginBody"); if (b && !(b.contains(document.activeElement) && document.activeElement.tagName === "INPUT")) {
+      b.innerHTML = state.auth && allNames().indexOf(state.auth) >= 0 ?
+        '<p class="meta">Angemeldet als <b>' + esc(state.auth) + '</b></p><button class="btn pri" type="button" data-act="cvgo">Weiter als ' + esc(state.auth) + '</button><button class="btn" type="button" data-act="cvother">Mit anderem Konto anmelden</button>' :
+        '<form id="cvForm" autocomplete="on"><label>Benutzername<input type="text" id="cv-u" autocomplete="username" autocapitalize="off" autocorrect="off" spellcheck="false"></label><label>Passwort<input type="password" id="cv-p" autocomplete="current-password"></label><button class="btn pri" type="submit">Anmelden</button><p class="meta">Benutzername und Passwort bekommst du vom Admin.</p></form>';
+    }
+    cvRefresh();
+  }
+  function coverOn() {
+    var c = $("#cover"); if (!c) return; c.hidden = false; document.body.classList.add("covered");
+    Array.prototype.forEach.call(document.querySelectorAll("header.top, nav.tabs, #subnav, main.app"), function (e) { e.inert = true; });
+    renderCover();
+  }
+  function enterApp() {
+    try { sessionStorage.setItem("rb-in", "1"); } catch (x) { /* ohne Speicher */ }
+    var c = $("#cover"); if (c) c.hidden = true; document.body.classList.remove("covered");
+    Array.prototype.forEach.call(document.querySelectorAll("header.top, nav.tabs, #subnav, main.app"), function (e) { e.inert = false; });
+    if (state.auth && state.me !== state.auth) { state.me = state.auth; save(); }
+    lastLogin = null; applyLayout(); updateAdminBtn(); updateAll();
+  }
+  function doLogin(uv, pv) {
+    var u = ((uv !== undefined ? uv : ($("#lg-u") || {}).value) || "").trim().toLowerCase(), h = hashPw((pv !== undefined ? pv : ($("#lg-p") || {}).value) || ""), found = "";
     if (!u) { toast("Bitte Benutzername eingeben."); return; }
     allNames().forEach(function (n) { var r = state.roles[n] || {}; if (r.user && r.pwh && r.user.toLowerCase() === u && r.pwh === h) found = n; });
     if (!found) { toast("Benutzername oder Passwort stimmt nicht."); return; }
-    state.auth = found; state.me = found; ui.confirm = null; ui.sub = "verw"; ui.view = myViews()[0]; lastLogin = null; ui.menu = false; save(); applyLayout(); updateAdminBtn(); updateAll(); toast("Angemeldet als " + found + ".");
+    state.auth = found; state.me = found; ui.confirm = null; ui.sub = "verw"; ui.view = myViews()[0]; lastLogin = null; ui.menu = false; save(); applyLayout(); updateAdminBtn(); updateAll(); enterApp(); toast("Angemeldet als " + found + ".");
   }
   function renderTabs() {
     renderMe();
@@ -1708,7 +1764,7 @@ body.dragmode { user-select: none; cursor: grabbing; }
   document.addEventListener("click", function (e) { if (ui.menu && e.target.closest && !e.target.closest("#menuPanel, #menuBtn")) setMenu(false); });
   document.addEventListener("keydown", function (e) { if (e.key === "Escape") { if (ui.menu) setMenu(false); if (drag) { cancelDrag(); } } });
   function renderLogo() { var el = $("#logoSlot"); if (!el) return; if (state.logo) { el.innerHTML = '<img alt="Logo" src="' + state.logo + '">'; el.hidden = false; } else { el.innerHTML = ""; el.hidden = true; } }
-  function updateAll() { renderLogo(); cleanupGone(); renderExtraTiles(); renderClock(); renderTabs(); renderPipe(); renderPanel(); updateMap(); renderDetail(); renderLog(); }
+  function updateAll() { if (coverVisible()) renderCover(); renderLogo(); cleanupGone(); renderExtraTiles(); renderClock(); renderTabs(); renderPipe(); renderPanel(); updateMap(); renderDetail(); renderLog(); if (coverVisible()) cvRefresh(); }
   function setView(v) { if (v === "map" && wide.matches) v = "order"; ui.view = v; renderTabs(); renderPanel(); }
 
   /* ---------- Toast ---------- */
@@ -1873,7 +1929,9 @@ body.dragmode { user-select: none; cursor: grabbing; }
     else if (act === "subadd") { var sc = subCfg(), nsid = "x" + (sc.nid++); sc.extra.push({ id: nsid, name: "Neuer Ordner" }); ui.sub = nsid; save(); renderTabs(); applyLayout(); renderPanel(); }
     else if (act === "subdel") { var dsid = b.getAttribute("data-s"), dc = subCfg(); dc.extra = dc.extra.filter(function (x) { return x.id !== dsid; }); if (state.layouts) delete state.layouts[(state.me || "") + "|" + dsid]; if (ui.sub === dsid) ui.sub = "verw"; save(); renderTabs(); applyLayout(); renderPanel(); }
     else if (act === "sub") { ui.sub = b.getAttribute("data-s"); renderTabs(); applyLayout(); renderPanel(); }
-    else if (act === "logout") { state.auth = ""; state.me = ""; ui.confirm = null; ui.view = "order"; ui.sub = "verw"; save(); applyLayout(); updateAdminBtn(); updateAll(); toast("Abgemeldet."); }
+    else if (act === "cvgo") enterApp();
+    else if (act === "cvother") { state.auth = ""; save(); lastLogin = null; renderCover(); var cu = $("#cv-u"); if (cu) cu.focus(); }
+    else if (act === "logout") { state.auth = ""; state.me = ""; ui.confirm = null; ui.view = "order"; ui.sub = "verw"; try { sessionStorage.removeItem("rb-in"); } catch (x) { /* ohne Speicher */ } save(); applyLayout(); updateAdminBtn(); coverOn(); updateAll(); toast("Abgemeldet."); }
     else if (act === "wlask" || act === "wlyes" || act === "wlno") {
       var wt = trainById(id); if (!wt || !canDelT(wt)) return;
       if (act === "wlask") ui.delVeh = id; else if (act === "wlno") ui.delVeh = null; else { delTrain(id); return; }
@@ -2083,6 +2141,7 @@ body.dragmode { user-select: none; cursor: grabbing; }
   document.addEventListener("input", function (e) { var pf = e.target.getAttribute && e.target.getAttribute("data-p"); if (pf === "num" || pf === "time") ui.dsp[pf] = e.target.value; });
   document.addEventListener("submit", function (e) {
     e.preventDefault();
+    if (e.target.id === "cvForm") { e.preventDefault(); doLogin(($("#cv-u") || {}).value || "", ($("#cv-p") || {}).value || ""); return; }
     if (e.target.id === "loginForm") { doLogin(); return; }
     if (e.target.id === "dspForm") {
       var d = ui.dsp, ph = $("#p-hint"), df = TYPEDEFS.filter(function (x) { return x.k === d.type; })[0], dn = (d.num || "").trim();
@@ -2535,6 +2594,7 @@ body.dragmode { user-select: none; cursor: grabbing; }
   updateAll();
   initClaude();
   syncInit();
+  (function () { var inn = false; try { inn = sessionStorage.getItem("rb-in") === "1"; } catch (x) { /* */ } if (!inn) coverOn(); })();
 })();
 </script>
 <script>
