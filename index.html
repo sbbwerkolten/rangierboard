@@ -378,6 +378,12 @@ body.dragmode { user-select: none; cursor: grabbing; }
 .npref { border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; display: grid; gap: 6px; font-size: 13px; }
 .npref summary { cursor: pointer; }
 .npref .qchk { display: flex; gap: 8px; align-items: flex-start; line-height: 1.35; }
+.npm { position: fixed; inset: 0; z-index: 150; background: rgba(0,0,0,.45); display: grid; place-items: center; padding: 16px; }
+.npm[hidden] { display: none; }
+.npm-card { width: min(480px, 100%); max-height: 90vh; overflow: auto; background: var(--surface); color: var(--ink); border: 1px solid var(--line); border-radius: 12px; padding: 16px; display: grid; gap: 12px; }
+.npm-card .qchk { display: flex; gap: 10px; align-items: flex-start; line-height: 1.35; font-size: 14px; padding: 6px 0; }
+.npm-card .qchk input { width: 20px; height: 20px; flex: none; margin-top: 1px; }
+body.npopen #toast { z-index: 200; }
 .notep .ni small { display: block; color: var(--ink-2); font-size: 11px; }
 </style>
 
@@ -396,7 +402,7 @@ body.dragmode { user-select: none; cursor: grabbing; }
         <button class="btn" type="button" data-act="impo" id="impoBtn">Einstellungen und Layouts importieren</button>
         <div class="sugform" id="impoForm" hidden><label class="meta" for="impo-t">Exportierten Text hier einfügen. Bestehende Einstellungen und Layouts werden ersetzt.</label><textarea id="impo-t" rows="5" placeholder="Text einfügen …"></textarea><button class="btn pri small" type="button" data-act="impoapply">Übernehmen</button></div>
         <div class="sugform" id="sugForm" hidden><label class="meta" for="sug-t">Was können wir besser machen?</label><textarea id="sug-t" rows="4" placeholder="Dein Vorschlag …"></textarea><button class="btn pri small" type="button" data-act="sugsend">Senden</button></div>
-        <div class="menusec" id="npBox" hidden></div>
+        <button class="btn" type="button" data-act="npopen" id="npBtn" hidden>Benachrichtigungen</button>
         <div class="meta" id="syncInfo" hidden></div>
         <div class="wm" aria-hidden="true">Pascal Rohrbach</div>
       </div></div>
@@ -461,6 +467,7 @@ body.dragmode { user-select: none; cursor: grabbing; }
     </div>
   </div>
 </div>
+<div class="npm" id="npModal" role="dialog" aria-modal="true" aria-labelledby="npm-t" hidden><div class="npm-card"><div class="row"><b id="npm-t" style="flex:1;font-size:18px">Benachrichtigungen</b><button class="btn small" type="button" data-act="npclose">Schliessen</button></div><div id="npBody" class="stack"></div></div></div>
 <div id="toast" role="status" aria-live="polite"></div>
 
 <script>
@@ -1024,7 +1031,7 @@ body.dragmode { user-select: none; cursor: grabbing; }
   setInterval(function () { var k = nowD().getHours() + ":" + nowD().getMinutes(); var el = $("#clkTxt"); if (el) renderClock(); var pq = pollOpen(), po = pq.open + "/" + pq.late + "/" + pq.cancel; if (po !== lastPoll) { lastPoll = po; renderPanel(); } }, 15000);
   var TILES = { clock: ["Demo-Uhr", "top"], stand: ["Stand der Verschiebungen", "side"], plan: ["Gleisplan", "map"], detail: ["Details", "map"], log: ["Letzte Meldungen", "map"] };
   var FTILES = {
-    "w-self": ["Werkstatt: Eigene Testfahrten", ["order"]], "w-poll": ["Werkstatt: Rundfrage / Ausgang melden", ["order"]], "w-form": ["Werkstatt: Bestellformular", ["order"]], "w-ready": ["Werkstatt: Fahrzeug fertig melden", ["order"]], "w-mine": ["Werkstatt: Meine Bestellungen", ["order"]],
+    "w-self": ["Werkstatt: Eigene Testfahrten", ["order"]], "w-poll": ["Werkstatt: Rundfrage / Ausgang melden", ["order"]], "w-form": ["Werkstatt: Bestellformular", ["order"]], "w-bereit": ["Werkstatt: Bereit zum Verschieben", ["order"]], "w-ready": ["Werkstatt: Fahrzeug fertig melden", ["order"]], "w-mine": ["Werkstatt: Meine Bestellungen", ["order"]],
     "c-day": ["Koordination: Titel und Tag", ["coord"]], "c-open": ["Koordination: Neu eingegangen", ["coord"]], "c-run": ["Koordination: In Arbeit", ["coord"]], "c-done": ["Koordination: Zuletzt erledigt", ["coord"]], "c-cons": ["Koordination: Einzelwagen-Ausgang", ["coord"]], "ab-main": ["Abwesenheiten", ["abs"]], "sh-main": ["Schichtplan", ["shift"]], "c-manual": ["Koordination: Von Hand umstellen", ["coord"]],
     "i-form": ["Einfahrt: Formular", ["in"]], "i-list": ["Einfahrt: Fahrzeuge im RB", ["in"]],
     "a-day": ["Ausgang: Titel und Tag", ["ausgang"]], "a-poll": ["Ausgang: Rundfrage heute", ["ausgang", "dispo"]], "a-ready": ["Ausgang: Fertig gemeldet", ["ausgang", "dispo"]],
@@ -1363,6 +1370,18 @@ body.dragmode { user-select: none; cursor: grabbing; }
     }
     return f;
   }
+  function needReady(o) { var t = o && trainById(o.trainId); return !!t && !!t.wait821 && !t.bereit && t.track === "821" && o.type !== "in"; }
+  function arriveHook(t, prev, now) {
+    if (now === "821" && prev === "RB" && t.type === "emu") { t.wait821 = true; t.bereit = false; delete t.bereitBy; delete t.bereitAt; }
+    else if (now !== "821") { delete t.wait821; delete t.bereit; delete t.bereitBy; delete t.bereitAt; }
+  }
+  function bereitCard(werk) {
+    var list = werk.filter(function (t) { return t.wait821 && t.track === "821"; });
+    if (!list.length) return "";
+    return '<div class="sec">Bereit zum Verschieben</div><div class="card"><p class="meta">Diese Triebzüge stehen auf Gl 821. Melde «Bereit», sobald das Fahrzeug verschoben werden darf. Der Rangierer bekommt dann eine Mitteilung.</p>' + list.map(function (t) {
+      return '<div class="row"><b style="flex:1;min-width:140px">' + esc(t.name) + ' <span class="meta">Gl 821' + (t.bereich ? " · " + esc(t.bereich) : "") + "</span></b>" + (t.bereit ? '<span class="chip c-ok">Bereit seit ' + esc(t.bereitAt || "") + (t.bereitBy ? " (" + esc(t.bereitBy) + ")" : "") + "</span>" : '<button class="btn pri" type="button" data-act="bereit" data-id="' + esc(t.id) + '">Bereit</button>') + "</div>";
+    }).join("") + "</div>";
+  }
   function viewOrder() {
     var werk = state.trains.slice();
     var restricted = orderRestricted(), myB = state.me ? bereichOf(state.me) : "";
@@ -1377,7 +1396,7 @@ body.dragmode { user-select: none; cursor: grabbing; }
     var formH = orderFormHTML(werk, false);
     var mine = state.orders.filter(function (o) { return o.bereich === draft.bereich; }).sort(function (a, b) { return a.t < b.t ? 1 : -1; });
     var h = '<div class="stack"><!--T:w-self-->' + selfTestCard() + '<!--T:w-poll-->' + pollCard(werk) + '<!--T:w-form-->' + formH +
-      '<!--T:w-ready-->' + readyCard(werk) + '<!--T:w-mine-->' +
+      '<!--T:w-bereit-->' + bereitCard(werk) + '<!--T:w-ready-->' + readyCard(werk) + '<!--T:w-mine-->' +
       '<div class="sec">Bestellungen von ' + esc(draft.bereich) + "</div>" +
       (mine.length ? mine.map(function (o) {
         return '<div class="oc s-' + o.status + '">' + head(o) + route(o) + '<div class="meta">' + (o.selfRun && o.status === "offen" ? "Wartet auf Zustimmung der Koordination" : o.assignee ? (selfNow(o) ? (o.moveBy ? "Fahrzeug steht auf " + esc(tshort(trainById(o.trainId).track)) + ". Du führst die Testfahrt selbst durch." : "Du führst die Testfahrt selbst durch") : "Rangierer: " + esc(o.assignee) + (o.selfRun ? " bringt das Fahrzeug auf Gl 821, danach führst du die Testfahrt selbst durch" : "")) : "Wartet auf Zuweisung durch die Koordination") + esc(afterText(o)) + (o.status === "erledigt" ? " · erledigt " + esc(o.tDone) + " Uhr" : "") + "</div>" +
@@ -1515,6 +1534,7 @@ body.dragmode { user-select: none; cursor: grabbing; }
       var nid = "T" + (state.trains.reduce(function (m, x) { return Math.max(m, parseInt(x.id.slice(1), 10) || 0); }, 0) + 1);
       var t = { id: nid, name: nm, short: df.short, type: df.type, len: df.len, track: "RB", lenNote: df.note, side: "S", seq: ++state.seq, since: nowT(), demo: true, bereich: df.type === "car" ? bsCar[nCar++ % bsCar.length] : bs[nTz++ % bs.length] };
       if (i % 3 !== 2) { for (var k = 0; k < cand.length; k++) { var tk = cand[(k + i * 2) % cand.length]; t.track = ""; if (fit(tk.id, t).ok) { t.track = tk.id; break; } } if (!t.track) t.track = "RB"; }
+      if (df.k === "ec" && isHall(t.track)) { ["863", "865", "867", "869", "864", "866"].some(function (c) { if (fit(c, t).ok) { t.track = c; return true; } return false; }); }
       if (t.track === "RB") { t.arrive = ("0" + (7 + (rbN % 8))).slice(-2) + ":" + (rbN % 2 ? "30" : "00"); rbN++; }
       state.trains.push(t); made++;
     });
@@ -1532,7 +1552,7 @@ body.dragmode { user-select: none; cursor: grabbing; }
   function dsAssign(o) { var who = dsPerson(o); if (needsShunter(o)) { o.shunter = shunterOf(o); o.time = o.time || defTime(o); } o.assignee = who; o.status = "zugewiesen"; o.tAssigned = nowT(); logEvent(o.id + " an " + who + " zugewiesen"); save(); updateAll(); return who; }
   function dsGo(o) { var t = trainById(o.trainId); o.status = "unterwegs"; o.tStart = nowT(); o.from = t.track; logEvent(o.assignee + " startet " + t.name + " nach " + tshort(o.to)); save(); updateAll(); }
   function dsDone(o) {
-    var t = trainById(o.trainId); t.track = o.to; t.seq = ++state.seq; t.since = nowT(); if (isHall(o.to)) t.side = o.side || "S";
+    var t = trainById(o.trainId), prevT = t.track; t.track = o.to; arriveHook(t, prevT, o.to); t.seq = ++state.seq; t.since = nowT(); if (isHall(o.to)) t.side = o.side || "S";
     if (o.type === "out" && o.to === "RB") { t.outAt = todayStr(); t.outNow = true; (state.outDone = state.outDone || []).push({ id: t.id, name: t.name, date: todayStr() }); }
     if (o.type === "in") { delete t.outAt; delete t.outNow; delete t.fertig; }
     o.actual = o.to; o.status = "erledigt"; o.tDone = nowT(); ui.selTrain = t.id; logEvent(o.assignee + " meldet " + t.name + " auf " + tshort(o.to)); save(); updateAll();
@@ -1552,6 +1572,19 @@ body.dragmode { user-select: none; cursor: grabbing; }
       add(3200, function () { if (o) { dsGo(o); toast((o.assignee || "Ein Rangierer") + " fährt " + r.name + " ins Werk."); } });
       add(3200, function () { if (o) { dsDone(o); toast(r.name + " steht auf " + tshort(o.to) + ". Der Gleisplan ist aktuell."); } });
     });
+    var em = demo.filter(function (t) { return t.track === "RB" && t.type === "emu"; })[0];
+    if (em) {
+      var o8, o9;
+      add(2600, function () { if (!fit("821", em).ok) return; toast("Koordination stellt " + em.name + " aus dem RB auf Gl 821."); o8 = dsOrder(em, "in", "821", { time: em.arrive || "08:00" }); });
+      add(3500, function () { if (o8) { var wq = dsAssign(o8); toast("Einfahrt auf Gl 821 wird " + (wq || "einem Rangierer") + " zugewiesen."); } });
+      add(3200, function () { if (o8) dsGo(o8); });
+      add(3200, function () { if (o8) { dsDone(o8); toast(em.name + " steht auf Gl 821. Alle im Bereich " + (em.bereich || "") + " bekommen eine Mitteilung."); } });
+      add(4500, function () { if (!o8) return; var to = dsFreeTrack(em, ["halle"]); if (!to) return; toast("Werkstatt bestellt die Verschiebung von " + em.name + "."); o9 = dsOrder(em, "move", to, { time: "11:00", bereich: em.bereich || "Koordination" }); });
+      add(4500, function () { if (o9) { var wr = dsAssign(o9); toast("Verschiebung wird " + (wr || "einem Rangierer") + " zugewiesen. Sie wartet auf «Bereit»."); } });
+      add(4500, function () { if (o9) { em.bereit = true; em.bereitBy = "Werkstatt"; em.bereitAt = nowT(); logEvent(em.name + " ist bereit zum Verschieben"); save(); updateAll(); toast("Werkstatt meldet " + em.name + " bereit. Der Rangierer bekommt eine Mitteilung."); } });
+      add(3200, function () { if (o9) dsGo(o9); });
+      add(3200, function () { if (o9) { dsDone(o9); toast(em.name + " steht auf " + tshort(o9.to) + "."); } });
+    }
     wk.slice(0, 2).forEach(function (w, i) {
       var o;
       add(2600, function () { var to = dsFreeTrack(w, ["halle"]); if (!to) return; toast("Werkstatt " + (w.bereich || "") + " bestellt eine Verschiebung für " + w.name + "."); o = dsOrder(w, "move", to, { time: "09:00" }); });
@@ -1744,6 +1777,7 @@ body.dragmode { user-select: none; cursor: grabbing; }
       var act = "";
       if (isFuture(o)) act = '<p class="meta">Geplant für ' + esc(fmtDate(odate(o))) + ". Der Auftrag startet erst am Einsatztag.</p>";
       else if (t.track === "RB" && o.type !== "in" && o.type !== "out") act = '<p class="meta">' + esc(t.name) + " steht noch im RB. Der Auftrag kann erst nach der Einfahrt ins Werk gestartet werden.</p>";
+      else if (needReady(o) && o.status === "zugewiesen") act = '<p class="warnp meta">Wartet auf «Bereit» der Werkstatt' + (t.bereich ? " (" + esc(t.bereich) + ")" : "") + ". Du bekommst eine Mitteilung, sobald das Fahrzeug bereit ist.</p>";
       else if (o.status === "rak") act = '<button class="btn go" type="button" data-act="rakdone" data-id="' + o.id + '">' + (isTest(o) ? "Testfahrt abschliessen" : "RAK abschliessen") + '</button>';
       else if (o.status === "zugewiesen") act = rakActive(o) && (t.track === o.to || (isTest(o) && t.track === "861")) ? '<button class="btn pri" type="button" data-act="rakstart" data-id="' + o.id + '">' + (isTest(o) ? "Testfahrt starten" : "RAK starten") + '</button>' : '<button class="btn pri" type="button" data-act="start" data-id="' + o.id + '">' + startLabel(o) + "</button>";
       else if (!conf) act = '<button class="btn go" type="button" data-act="askconfirm" data-id="' + o.id + '">Durchführung bestätigen</button>';
@@ -1777,8 +1811,9 @@ body.dragmode { user-select: none; cursor: grabbing; }
   }
   function weekKey() { var d = new Date(); d.setHours(12, 0, 0, 0); var wd = (d.getDay() + 6) % 7; d.setDate(d.getDate() - wd); return d.getFullYear() + "-" + ("0" + (d.getMonth() + 1)).slice(-2) + "-" + ("0" + d.getDate()).slice(-2); }
   function authValid() { return !!state.auth && allNames().indexOf(state.auth) >= 0 && state.authWeek === weekKey(); }
-  var APPVER = "v41";
+  var APPVER = "v42";
   var CHANGELOG = [
+    { d: "20.11.2026", t: "Benachrichtigungen haben ein eigenes Fenster im Menü. Neu: Triebzug auf Gl 821 mit Knopf «Bereit» für die Werkstatt, Mitteilung an den Rangierer, Mitteilung bei neuem Fahrzeug im Bereich." },
     { d: "20.11.2026", t: "SBB-Logo als App-Symbol. Systemmitteilungen (Windows, Android, iPhone) für alle erlaubten Meldungen. Einstellungen pro Person im Menü." },
     { d: "20.11.2026", t: "Mitteilungen kürzer und ohne Auftragsnummer. Standard: Verschiebung angenommen (mit Zeit), ausgeführt, Testfahrt bewilligt. Jeder stellt unter der Glocke selbst ein, was er erhält." },
     { d: "20.11.2026", t: "Neu: Verbindungsanzeige, Mitteilungen (Glocke), Offline-Nachmeldung, Demo-Ablauf mit Drehbuch, Fahrzeuge und Backup im Admin. Kst 630 bekommt in der Demo nur Triebzüge." },
@@ -1932,6 +1967,13 @@ body.dragmode { user-select: none; cursor: grabbing; }
       logEvent(o.id + " an " + who + " zugewiesen"); save(); updateAll();
       toast(wasNew ? o.id + " an " + who + " zugewiesen." : o.id + " neu an " + who + " zugewiesen.");
     }
+    else if (act === "bereit") {
+      var bt = trainById(id), bme = state.auth || state.me;
+      if (!bt) return;
+      if (!(admOK() || (bme && bereichOf(bme) === bt.bereich))) { toast("Nur Personen des Bereichs " + (bt.bereich || "") + " können Bereit melden."); return; }
+      bt.bereit = true; bt.bereitBy = bme || ""; bt.bereitAt = nowT(); logEvent(bt.name + " ist bereit zum Verschieben (" + (bme || "Admin") + ")"); save(); updateAll(); toast(bt.name + " ist als bereit gemeldet. Der Rangierer wird informiert.");
+    }
+    else if (act === "start" && needReady(o)) { toast(trainById(o.trainId).name + " ist noch nicht bereit. Die Werkstatt muss zuerst «Bereit» melden."); }
     else if (act === "start") { o.status = "unterwegs"; o.tStart = nowT(); o.from = trainById(o.trainId).track; logEvent(o.assignee + " startet " + trainById(o.trainId).name + " nach " + tshort(o.to)); save(); updateAll(); }
     else if (act === "clk") {
       var v = b.getAttribute("data-v");
@@ -2216,8 +2258,8 @@ body.dragmode { user-select: none; cursor: grabbing; }
     else if (act === "askconfirm") { ui.confirm = id; renderPanel(); }
     else if (act === "cancelconfirm") { ui.confirm = null; renderPanel(); }
     else if (act === "doconfirm") {
-      var t = trainById(o.trainId), actual = $("#at-" + id).value;
-      t.track = actual; t.seq = ++state.seq; t.since = nowT();
+      var t = trainById(o.trainId), actual = $("#at-" + id).value, prevT = t.track;
+      t.track = actual; arriveHook(t, prevT, actual); t.seq = ++state.seq; t.since = nowT();
       var orEl = $("#or-" + id); if (orEl && orEl.value) t.orient = +orEl.value;
       var sdEl = $("#sd-" + id); if (isHall(actual)) t.side = sdEl ? sdEl.value : (o.side || "S");
       if (o.cars) o.cars.forEach(function (cid) { var c2 = trainById(cid); if (c2 && c2.id !== t.id) { c2.track = actual; c2.seq = ++state.seq; c2.since = nowT(); if (isHall(actual)) c2.side = t.side; } });
@@ -2778,7 +2820,7 @@ body.dragmode { user-select: none; cursor: grabbing; }
   try { NOTE.list = JSON.parse(localStorage.getItem("rb-notes") || "[]") || []; } catch (e) { NOTE.list = []; }
   setTimeout(function () { NOTE.armed = true; }, 6000);
   function realHM() { var d = new Date(); return ("0" + d.getHours()).slice(-2) + ":" + ("0" + d.getMinutes()).slice(-2); }
-  function snapOrders() { var m = {}; (state.orders || []).forEach(function (o) { m[o.id] = { s: o.status, a: o.assignee || "", t: o.time || "" }; }); return m; }
+  function snapOrders() { var m = {}; (state.orders || []).forEach(function (o) { m[o.id] = { s: o.status, a: o.assignee || "", t: o.time || "" }; }); (state.trains || []).forEach(function (t) { m["T:" + t.id] = { k: t.track, b: !!t.bereit, br: t.bereich || "" }; }); return m; }
   function noteSave() { try { localStorage.setItem("rb-notes", JSON.stringify(NOTE.list.slice(0, 30))); } catch (e) { /* ohne Speicher */ } }
   function beep() { try { var AC = window.AudioContext || window.webkitAudioContext; if (!AC) return; NOTE.ctx = NOTE.ctx || new AC(); var c = NOTE.ctx, os = c.createOscillator(), g = c.createGain(); os.frequency.value = 880; g.gain.value = 0.06; os.connect(g); g.connect(c.destination); os.start(); os.stop(c.currentTime + 0.2); } catch (e) { /* kein Ton */ } }
   document.addEventListener("pointerdown", function () { try { var AC = window.AudioContext || window.webkitAudioContext; if (AC) { NOTE.ctx = NOTE.ctx || new AC(); if (NOTE.ctx.resume) NOTE.ctx.resume(); } } catch (e) { /* */ } }, { once: true });
@@ -2797,14 +2839,18 @@ body.dragmode { user-select: none; cursor: grabbing; }
     } catch (e) { /* keine Systemmitteilung möglich */ }
   }
   function renderNpBox() {
-    var bx = $("#npBox"); if (!bx) return; bx.hidden = !state.auth; if (!state.auth) return;
+    var bt = $("#npBtn"); if (bt) bt.hidden = !state.auth;
+    var bx = $("#npBody"), md = $("#npModal"); if (!bx || !md || md.hidden) return;
     if (bx.contains(document.activeElement) && document.activeElement.tagName === "INPUT") return;
     var perm = window.Notification ? Notification.permission : "none";
-    bx.innerHTML = '<b>Mitteilungen für ' + esc(state.auth) + "</b>" + NP_LBL.map(function (x) { return '<label class="qchk"><input type="checkbox" data-np="' + x[0] + '"' + (npGet(x[0]) ? " checked" : "") + "> " + esc(x[1]) + "</label>"; }).join("") +
-      (perm === "granted" ? '<p class="meta">Mitteilungen auf diesem Gerät sind erlaubt.</p><button class="btn small" type="button" data-act="notetest">Testmitteilung senden</button>' : perm === "denied" ? '<p class="meta">Mitteilungen sind in den Einstellungen dieses Geräts oder Browsers blockiert. Dort kannst du sie wieder erlauben.</p>' : perm === "default" ? '<button class="btn pri small" type="button" data-act="noteperm">Mitteilungen auf diesem Gerät erlauben</button>' : '<p class="meta">Dieses Gerät oder dieser Browser unterstützt keine Systemmitteilungen. Auf dem iPhone zuerst die App zum Home-Bildschirm hinzufügen.</p>');
+    bx.innerHTML = '<p class="meta">Wähle, welche Benachrichtigungen <b>' + esc(state.auth || "du") + "</b> erhalten möchte. Die Auswahl gilt für dieses Gerät.</p>" + NP_LBL.map(function (x) { return '<label class="qchk"><input type="checkbox" data-np="' + x[0] + '"' + (npGet(x[0]) ? " checked" : "") + "> <span>" + esc(x[1]) + "</span></label>"; }).join("") +
+      (perm === "granted" ? '<p class="meta">Systemmitteilungen sind auf diesem Gerät erlaubt.</p><button class="btn small" type="button" data-act="notetest">Testmitteilung senden</button>' : perm === "denied" ? '<p class="meta">Systemmitteilungen sind in den Einstellungen dieses Geräts oder Browsers blockiert. Dort kannst du sie wieder erlauben.</p>' : perm === "default" ? '<button class="btn pri" type="button" data-act="noteperm">Systemmitteilungen auf diesem Gerät erlauben</button>' : '<p class="meta">Dieses Gerät oder dieser Browser unterstützt keine Systemmitteilungen. Auf dem iPhone zuerst die App zum Home-Bildschirm hinzufügen.</p>');
   }
-  var NP_DEF = { acc: true, done: true, test: true, neu: false, zuw: false, zur: false };
-  var NP_LBL = [["acc", "Verschiebung angenommen, mit bestätigter Zeit (Werkstatt)"], ["done", "Verschiebung ausgeführt (Werkstatt)"], ["test", "Testfahrt bewilligt (Werkstatt)"], ["neu", "Neuer Auftrag (Koordination)"], ["zuw", "Mir zugewiesen (Rangierer)"], ["zur", "Auftrag zurückgezogen (Koordination)"]];
+  function npModal(on) { var md = $("#npModal"); if (!md) return; md.hidden = !on; document.body.classList.toggle("npopen", !!on); if (on) { setMenu(false); renderNpBox(); } }
+  document.addEventListener("click", function (e) { var a = e.target.closest && e.target.closest("[data-act]"); a = a && a.getAttribute("data-act"); if (a === "npopen") npModal(true); else if (a === "npclose" || (e.target.id === "npModal")) npModal(false); });
+  document.addEventListener("keydown", function (e) { if (e.key === "Escape") npModal(false); });
+  var NP_DEF = { acc: true, done: true, test: true, rb821: true, bereit: true, neufz: true, neu: false, zuw: false, zur: false };
+  var NP_LBL = [["acc", "Verschiebung angenommen, mit bestätigter Zeit (Werkstatt)"], ["done", "Verschiebung ausgeführt (Werkstatt)"], ["test", "Testfahrt bewilligt (Werkstatt)"], ["rb821", "Triebzug aus dem RB auf Gl 821 gestellt (mein Bereich)"], ["bereit", "Fahrzeug ist bereit zum Verschieben (Rangierer)"], ["neufz", "Neues Fahrzeug in meinem Bereich (Dispo)"], ["neu", "Neuer Auftrag (Koordination)"], ["zuw", "Mir zugewiesen (Rangierer)"], ["zur", "Auftrag zurückgezogen (Koordination)"]];
   function npAll() { try { return JSON.parse(localStorage.getItem("rb-noteprefs") || "{}") || {}; } catch (e) { return {}; } }
   function npGet(k) { var u = npAll()[state.auth || state.me || ""] || {}; return u[k] === undefined ? NP_DEF[k] : !!u[k]; }
   function npSet(k, v) { var a = npAll(), me = state.auth || state.me || ""; a[me] = a[me] || {}; a[me][k] = !!v; try { localStorage.setItem("rb-noteprefs", JSON.stringify(a)); } catch (e) { /* ohne Speicher */ } }
@@ -2813,6 +2859,15 @@ body.dragmode { user-select: none; cursor: grabbing; }
     if (!NOTE.armed || !b) return;
     var me = state.auth || state.me; if (!me) return;
     var v = myViews0(), isC = v.indexOf("coord") >= 0, isW = v.indexOf("order") >= 0, myB = bereichOf(me);
+    var newFz = 0, newFzTxt = "";
+    (state.trains || []).forEach(function (t) {
+      var p = b["T:" + t.id];
+      if (!p) { if (myB && t.bereich === myB && npGet("neufz")) { newFz++; newFzTxt = "Neues Fahrzeug im Bereich " + myB + ": " + t.name; } return; }
+      if (p.br !== t.bereich && myB && t.bereich === myB && npGet("neufz")) { newFz++; newFzTxt = t.name + " wurde deinem Bereich " + myB + " zugeteilt"; }
+      if (p.k === "RB" && t.track === "821" && t.wait821 && myB && t.bereich === myB && npGet("rb821")) pushNote(t.name + " steht auf Gl 821. Bitte «Bereit» melden, sobald das Fahrzeug verschoben werden darf.");
+      if (!p.b && t.bereit && npGet("bereit") && state.orders.some(function (o) { return o.trainId === t.id && o.assignee === me && isOpenOrder(o); })) pushNote(t.name + " ist bereit zum Verschieben (Gl 821).");
+    });
+    if (newFz === 1) pushNote(newFzTxt); else if (newFz > 1) pushNote(newFz + " neue Fahrzeuge in deinem Bereich " + myB);
     (state.orders || []).forEach(function (o) {
       var p = b[o.id], tr = trainById(o.trainId), nm = tr ? tr.name : "Fahrzeug", mineW = isW && myB && myB === o.bereich, tm = o.time ? " um " + o.time + " Uhr" : "";
       if (!p) {
