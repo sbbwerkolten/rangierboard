@@ -2358,7 +2358,7 @@ body.dragmode { user-select: none; cursor: grabbing; }
 
 
   /* ---- Gemeinsame Daten über eine Online-Datenbank (Firebase Realtime Database, nur REST) ---- */
-  var RTS = { on: false, inited: false, base: {}, url: "", rev: null, busy: false, timer: null, warned: false };
+  var RTS = { on: false, inited: false, base: {}, url: "", rev: null, busy: false, timer: null, warned: false, gen: 0 };
   var RT_ID_KEYS = ["trains", "orders"];
   function rtSafe(id) { return String(id).replace(/[.#$\[\]\/]/g, "_"); }
   function rtReq(method, path, body) {
@@ -2376,9 +2376,11 @@ body.dragmode { user-select: none; cursor: grabbing; }
   function rtApplyLocal() { state.staff = normStaff(state.staff); GROUPS = state.staff; BEREICHE = state.bereiche; if (state.rollen) ROLLEN = state.rollen; if (!state.poll) state.poll = {}; if (!state.absent) state.absent = []; if (!state.log) state.log = []; ensureOwner(); saveLocal(); }
   function rtRender() { if (busyTyping()) { setTimeout(rtRender, 2000); return; } applyLayout(); updateAll(); }
   function rtMerge(remote) {
+    var empty = !Object.keys(remote).length;
+    RT_ID_KEYS.forEach(function (k) { if (!remote[k]) remote[k] = []; });
     if (!RTS.inited) {
       RTS.inited = true;
-      if (!Object.keys(remote).length) { RTS.base = {}; rtPush(); return; }
+      if (empty) { RTS.base = {}; rtPush(); return; }
       Object.keys(remote).forEach(function (k) { state[k] = remote[k]; }); rtApplyLocal(); RTS.base = JSON.parse(JSON.stringify(remote)); rtRender(); return;
     }
     var ops = []; rbDiff(RTS.base, remote, [], 0, ops); if (!ops.length) return;
@@ -2399,12 +2401,13 @@ body.dragmode { user-select: none; cursor: grabbing; }
         else upd[k + "/" + rtSafe(op.p[1].id)] = JSON.stringify(op.v);
       } else upd[k] = cur[k] === undefined ? null : JSON.stringify(cur[k]);
     });
+    if (!Object.keys(upd).length) { RTS.base = cur; return; }
     upd.rev = Date.now() + Math.random().toString(36).slice(2, 6);
-    RTS.busy = true;
-    rtReq("PATCH", "/rb.json", upd).then(function () { RTS.base = cur; RTS.busy = false; syncUI("Mit der Online-Datenbank verbunden"); })
+    RTS.busy = true; RTS.gen++;
+    rtReq("PATCH", "/rb.json", upd).then(function () { RTS.base = cur; RTS.busy = false; RTS.gen++; syncUI("Mit der Online-Datenbank verbunden"); })
       .catch(function () { RTS.busy = false; rtFail(); clearTimeout(RTS.timer); RTS.timer = setTimeout(rtPush, 4000); });
   }
-  function rtPull() { return rtReq("GET", "/rb.json").then(function (raw) { RTS.rev = (raw && raw.rev) || null; rtMerge(rtParse(raw)); }); }
+  function rtPull() { var g = RTS.gen; return rtReq("GET", "/rb.json").then(function (raw) { if (g !== RTS.gen || RTS.busy) return; RTS.rev = (raw && raw.rev) || null; rtMerge(rtParse(raw)); }); }
   function rtPoll() {
     if (!RTS.on || RTS.busy || busyTyping()) return;
     var cur = sharedOf(), ops = []; rbDiff(RTS.base, cur, [], 0, ops); if (ops.length) { rtPush(); return; }
