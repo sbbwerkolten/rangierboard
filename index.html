@@ -330,6 +330,10 @@ body.covered #toast { z-index: 200; bottom: 24px; }
 @media (min-width: 1040px) { .cv-grid { grid-template-columns: minmax(0, 1fr) 340px; } }
 .cv-card { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 16px; display: grid; gap: 12px; min-width: 0; }
 .cv-card h2 { margin: 0; font-size: 18px; }
+.cv-side { display: grid; gap: 20px; min-width: 0; }
+.cv-log h2 { font-size: 15px; }
+.cv-log p { margin: 2px 0 8px; font-size: 13px; line-height: 1.45; color: var(--ink-2); }
+.cv-log b { font-size: 12px; letter-spacing: .04em; color: var(--ink); }
 .cv-login form { display: grid; gap: 10px; }
 .cv-login label { display: grid; gap: 4px; font-size: 13px; color: var(--ink-2); }
 .cv-login input { font: inherit; font-size: 16px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); color: var(--ink); min-height: 44px; }
@@ -433,7 +437,10 @@ body.dragmode { user-select: none; cursor: grabbing; }
         <div class="mapHead"><h2>Aktueller Gleisplan</h2><span class="live"><i></i><span>Live, nur Ansicht</span></span></div>
         <div class="mapBox"><svg id="coverMap" viewBox="0 0 1060 560" role="img" aria-label="Schematischer Gleisplan Werk Olten, nur Ansicht"></svg></div>
       </section>
-      <section class="cv-card cv-login" aria-label="Anmeldung"><h2>Anmelden</h2><div id="cvLoginBody"></div></section>
+      <div class="cv-side">
+        <section class="cv-card cv-login" aria-label="Anmeldung"><h2>Anmelden</h2><div id="cvLoginBody"></div></section>
+        <section class="cv-card cv-log" aria-label="Letztes Update"><h2>Letztes Update</h2><div id="cvLog"></div></section>
+      </div>
     </div>
   </div>
 </div>
@@ -1659,6 +1666,12 @@ body.dragmode { user-select: none; cursor: grabbing; }
     box.innerHTML = k ? '<span class="chip c-ok">Angemeldet: ' + esc(k) + '</span><button class="btn" type="button" data-act="logout">Abmelden</button>' :
       '<button class="btn pri" type="button" data-act="loginopen">Anmelden</button><div id="loginFormWrap" hidden><form id="loginForm" class="loginf" autocomplete="on"><input type="text" id="lg-u" placeholder="Benutzername" aria-label="Benutzername" autocomplete="username" autocapitalize="off"><input type="password" id="lg-p" placeholder="Passwort" aria-label="Passwort" autocomplete="current-password"><button class="btn small pri" type="submit">Los</button></form></div>';
   }
+  function weekKey() { var d = new Date(); d.setHours(12, 0, 0, 0); var wd = (d.getDay() + 6) % 7; d.setDate(d.getDate() - wd); return d.getFullYear() + "-" + ("0" + (d.getMonth() + 1)).slice(-2) + "-" + ("0" + d.getDate()).slice(-2); }
+  function authValid() { return !!state.auth && allNames().indexOf(state.auth) >= 0 && state.authWeek === weekKey(); }
+  var CHANGELOG = [
+    { d: "20.11.2026", t: "Neue Startseite mit Gleisplan. Anmeldung bleibt bis Ende der Arbeitswoche bestehen. Layout-Export und -Import nur noch für den Admin." },
+    { d: "19.11.2026", t: "Gleisplan lässt sich verschieben und zoomen. Neue Kacheln im Layout schliessen direkt an die unterste an. Online-Datenbank für mehrere Geräte." }
+  ];
   function coverVisible() { var c = $("#cover"); return !!c && !c.hidden; }
   function cvRefresh() {
     var m = $("#map"), c = $("#coverMap"); if (!m || !c) return;
@@ -1671,6 +1684,7 @@ body.dragmode { user-select: none; cursor: grabbing; }
         '<p class="meta">Angemeldet als <b>' + esc(state.auth) + '</b></p><button class="btn pri" type="button" data-act="cvgo">Weiter als ' + esc(state.auth) + '</button><button class="btn" type="button" data-act="cvother">Mit anderem Konto anmelden</button>' :
         '<form id="cvForm" autocomplete="on"><label>Benutzername<input type="text" id="cv-u" autocomplete="username" autocapitalize="off" autocorrect="off" spellcheck="false"></label><label>Passwort<input type="password" id="cv-p" autocomplete="current-password"></label><button class="btn pri" type="submit">Anmelden</button><p class="meta">Benutzername und Passwort bekommst du vom Admin.</p></form>';
     }
+    var lg2 = $("#cvLog"); if (lg2) lg2.innerHTML = CHANGELOG.slice(0, 2).map(function (c) { return "<b>" + esc(c.d) + "</b><p>" + esc(c.t) + "</p>"; }).join("");
     cvRefresh();
   }
   function coverOn() {
@@ -1679,7 +1693,7 @@ body.dragmode { user-select: none; cursor: grabbing; }
     renderCover();
   }
   function enterApp() {
-    try { sessionStorage.setItem("rb-in", "1"); } catch (x) { /* ohne Speicher */ }
+    if (state.auth) state.authWeek = state.authWeek || weekKey();
     var c = $("#cover"); if (c) c.hidden = true; document.body.classList.remove("covered");
     Array.prototype.forEach.call(document.querySelectorAll("header.top, nav.tabs, #subnav, main.app"), function (e) { e.inert = false; });
     if (state.auth && state.me !== state.auth) { state.me = state.auth; save(); }
@@ -1690,7 +1704,7 @@ body.dragmode { user-select: none; cursor: grabbing; }
     if (!u) { toast("Bitte Benutzername eingeben."); return; }
     allNames().forEach(function (n) { var r = state.roles[n] || {}; if (r.user && r.pwh && r.user.toLowerCase() === u && r.pwh === h) found = n; });
     if (!found) { toast("Benutzername oder Passwort stimmt nicht."); return; }
-    state.auth = found; state.me = found; ui.confirm = null; ui.sub = "verw"; ui.view = myViews()[0]; lastLogin = null; ui.menu = false; save(); applyLayout(); updateAdminBtn(); updateAll(); enterApp(); toast("Angemeldet als " + found + ".");
+    state.auth = found; state.authWeek = weekKey(); state.me = found; ui.confirm = null; ui.sub = "verw"; ui.view = myViews()[0]; lastLogin = null; ui.menu = false; save(); applyLayout(); updateAdminBtn(); updateAll(); enterApp(); toast("Angemeldet als " + found + ".");
   }
   function renderTabs() {
     renderMe();
@@ -1930,8 +1944,8 @@ body.dragmode { user-select: none; cursor: grabbing; }
     else if (act === "subdel") { var dsid = b.getAttribute("data-s"), dc = subCfg(); dc.extra = dc.extra.filter(function (x) { return x.id !== dsid; }); if (state.layouts) delete state.layouts[(state.me || "") + "|" + dsid]; if (ui.sub === dsid) ui.sub = "verw"; save(); renderTabs(); applyLayout(); renderPanel(); }
     else if (act === "sub") { ui.sub = b.getAttribute("data-s"); renderTabs(); applyLayout(); renderPanel(); }
     else if (act === "cvgo") enterApp();
-    else if (act === "cvother") { state.auth = ""; save(); lastLogin = null; renderCover(); var cu = $("#cv-u"); if (cu) cu.focus(); }
-    else if (act === "logout") { state.auth = ""; state.me = ""; ui.confirm = null; ui.view = "order"; ui.sub = "verw"; try { sessionStorage.removeItem("rb-in"); } catch (x) { /* ohne Speicher */ } save(); applyLayout(); updateAdminBtn(); coverOn(); updateAll(); toast("Abgemeldet."); }
+    else if (act === "cvother") { state.auth = ""; state.authWeek = ""; save(); lastLogin = null; renderCover(); var cu = $("#cv-u"); if (cu) cu.focus(); }
+    else if (act === "logout") { state.auth = ""; state.authWeek = ""; state.me = ""; ui.confirm = null; ui.view = "order"; ui.sub = "verw"; save(); applyLayout(); updateAdminBtn(); coverOn(); updateAll(); toast("Abgemeldet."); }
     else if (act === "wlask" || act === "wlyes" || act === "wlno") {
       var wt = trainById(id); if (!wt || !canDelT(wt)) return;
       if (act === "wlask") ui.delVeh = id; else if (act === "wlno") ui.delVeh = null; else { delTrain(id); return; }
@@ -2082,7 +2096,7 @@ body.dragmode { user-select: none; cursor: grabbing; }
     }
     else if (act === "reset") {
       if (!ui.resetArm) { ui.resetArm = true; b.textContent = "Wirklich löschen?"; setTimeout(function () { ui.resetArm = false; b.textContent = "Daten löschen"; }, 3500); return; }
-      ui.resetArm = false; b.textContent = "Daten löschen"; var keepLg = state.logo, keepMe = state.me, keepAu = state.auth, keepL = state.layouts, keepRP = state.rolePerms, keepBO = state.bereichOpt, keepS = state.staff, keepB = state.bereiche, keepQ = state.quals, keepR = state.roles, keepRo = state.rollen, keepSC = state.subCfg, keepSh = state.shifts; state = seed(); state.subCfg = keepSC || {}; if (keepSh) state.shifts = keepSh; state.logo = keepLg || ""; state.me = keepMe || ""; state.auth = keepAu || ""; state.layouts = keepL; state.rolePerms = keepRP || {}; state.bereichOpt = keepBO || {}; state.absent = []; state.rollen = keepRo; ROLLEN = state.rollen; state.staff = keepS; state.bereiche = keepB; state.quals = keepQ; state.roles = keepR; GROUPS = state.staff; BEREICHE = state.bereiche; ui.selTrain = ui.selTrack = ui.confirm = null; save(); updateAll(); toast("Fahrzeuge und Aufträge gelöscht. Mitarbeiter und Bereiche bleiben.");
+      ui.resetArm = false; b.textContent = "Daten löschen"; var keepLg = state.logo, keepMe = state.me, keepAu = state.auth, keepAW = state.authWeek, keepL = state.layouts, keepRP = state.rolePerms, keepBO = state.bereichOpt, keepS = state.staff, keepB = state.bereiche, keepQ = state.quals, keepR = state.roles, keepRo = state.rollen, keepSC = state.subCfg, keepSh = state.shifts; state = seed(); state.subCfg = keepSC || {}; if (keepSh) state.shifts = keepSh; state.logo = keepLg || ""; state.me = keepMe || ""; state.auth = keepAu || ""; state.authWeek = keepAW || ""; state.layouts = keepL; state.rolePerms = keepRP || {}; state.bereichOpt = keepBO || {}; state.absent = []; state.rollen = keepRo; ROLLEN = state.rollen; state.staff = keepS; state.bereiche = keepB; state.quals = keepQ; state.roles = keepR; GROUPS = state.staff; BEREICHE = state.bereiche; ui.selTrain = ui.selTrack = ui.confirm = null; save(); updateAll(); toast("Fahrzeuge und Aufträge gelöscht. Mitarbeiter und Bereiche bleiben.");
     }
   });
   document.addEventListener("keydown", function (e) {
@@ -2359,7 +2373,8 @@ body.dragmode { user-select: none; cursor: grabbing; }
     if (!cfgRef) return;
     try { Promise.resolve(cfgRef.set(cfgPayload())).catch(function () { toast("Gespeichert auf diesem Gerät. Für alle anderen ging es nicht (gemeinsame Ablage nicht erreichbar)."); }); } catch (err) { toast("Gespeichert auf diesem Gerät. Für alle anderen ging es nicht."); }
   }
-  function updateAdminBtn() { var el = $("#adminBtn"); if (el) { el.hidden = true; el.textContent = admOK() ? "Admin" : "Admin-Login"; } renderTabs(); }
+  function menuAdmin() { return state.auth ? isAdminP(state.auth) : admOK(); }
+  function updateAdminBtn() { ["expoBtn", "impoBtn"].forEach(function (id) { var b = $("#" + id); if (b) b.hidden = !menuAdmin(); }); if (!menuAdmin()) { var f1 = $("#expoForm"), f2 = $("#impoForm"); if (f1) f1.hidden = true; if (f2) f2.hidden = true; } var el = $("#adminBtn"); if (el) { el.hidden = true; el.textContent = admOK() ? "Admin" : "Admin-Login"; } renderTabs(); }
   function initClaude() {
     var C = window.claude;
     if (!C || !C.use) { adminOK = true; updateAdminBtn(); return; } /* als einzelne Datei im Browser: lokale Verwaltung ohne Konto */
@@ -2594,7 +2609,7 @@ body.dragmode { user-select: none; cursor: grabbing; }
   updateAll();
   initClaude();
   syncInit();
-  (function () { var inn = false; try { inn = sessionStorage.getItem("rb-in") === "1"; } catch (x) { /* */ } if (!inn) coverOn(); })();
+  (function () { if (state.auth && !authValid()) { state.auth = ""; state.me = ""; save(); applyLayout(); updateAdminBtn(); updateAll(); } if (authValid()) enterApp(); else coverOn(); })();
 })();
 </script>
 <script>
