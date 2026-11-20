@@ -216,8 +216,14 @@ body.editlayout .col-top:empty { display: block; }
 .live { display: inline-flex; align-items: center; gap: 7px; font: 500 13px var(--f-mono); color: var(--ink-2); }
 .live i { width: 9px; height: 9px; border-radius: 50%; background: var(--ok); animation: pulse 1.8s infinite; }
 @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: .3; } }
-.mapBox { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; overflow-x: auto; }
-svg#map { display: block; width: 100%; min-width: 820px; height: auto; }
+.mapBox { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; overflow: hidden; position: relative; }
+svg#map { display: block; width: 100%; height: auto; max-width: 100%; user-select: none; -webkit-user-select: none; }
+.mapZoom { position: absolute; top: 8px; right: 8px; display: flex; gap: 4px; z-index: 3; }
+.mapZoom button { min-width: 36px; min-height: 36px; padding: 0 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); color: var(--ink); font: inherit; font-weight: 700; cursor: pointer; box-shadow: 0 1px 4px rgba(0,0,0,.15); }
+.mapZoom button:hover { border-color: var(--accent); }
+.freearea > .tile[data-tile="plan"] { display: flex; flex-direction: column; gap: 8px; }
+.freearea > .tile[data-tile="plan"] .mapBox { flex: 1 1 auto; min-height: 160px; display: flex; }
+.freearea > .tile[data-tile="plan"] svg#map { height: 100%; flex: 1 1 auto; }
 .zone { fill: var(--zone); stroke: var(--line); stroke-width: 1.5; }
 .zlabel { font: 600 13px var(--f-disp); letter-spacing: .14em; fill: var(--ink-2); }
 .cap { font: 500 11px var(--f-body); fill: var(--ink-2); }
@@ -391,6 +397,7 @@ body.dragmode { user-select: none; cursor: grabbing; }
     </div>
     <div class="mapBox">
       <svg id="map" viewBox="0 0 1060 560" role="group" aria-label="Schematischer Gleisplan, nicht massstäblich"></svg>
+      <div class="mapZoom" role="group" aria-label="Gleisplan vergrössern und verschieben"><button type="button" data-act="mzin" aria-label="Vergrössern" title="Vergrössern">+</button><button type="button" data-act="mzout" aria-label="Verkleinern" title="Verkleinern">−</button><button type="button" data-act="mzfit" title="Ganzen Plan anzeigen">Ganz</button></div>
     </div>
     <div class="legend">
       <span><i class="sw emu"></i>Triebzug</span><span><i class="sw loco"></i>Lokomotive</span><span><i class="sw car"></i>Wagen</span><span><i class="sw road"></i>Zweiwege</span>
@@ -1794,6 +1801,9 @@ body.dragmode { user-select: none; cursor: grabbing; }
       logEvent(co.id + ": Einzelwagenausgang mit " + cids.length + " Wagen zusammengestellt"); save(); updateAll(); toast(co.id + " ist zusammengestellt und für alle Rangierer sichtbar.");
     }
     else if (act === "layout") { ui.edit = !ui.edit; setMenu(false); renderTabs(); applyLayout(); }
+    else if (act === "mzin") mapZoom(MV.z * 1.4);
+    else if (act === "mzout") mapZoom(MV.z / 1.4);
+    else if (act === "mzfit") mapZoom(1);
     else if (act === "demostart") { if (!admOK()) return; startDemo(); }
     else if (act === "democlear") { if (!admOK()) return; clearDemo(); }
     else if (act === "menu") { setMenu(!ui.menu); }
@@ -2476,6 +2486,45 @@ body.dragmode { user-select: none; cursor: grabbing; }
       setInterval(syncPoll, 2500);
     }).catch(function () { rtInit(); });
   }
+  /* ---- Gleisplan: vergrössern und verschieben ---- */
+  var MV = { x: 0, y: 0, w: 1060, h: 560, z: 1 }, mptr = {}, mdrag = null, mpinch = null, mblock = false;
+  function mapApply() { var sv = document.getElementById("map"); if (!sv) return; sv.setAttribute("viewBox", MV.x + " " + MV.y + " " + MV.w + " " + MV.h); sv.style.touchAction = MV.z > 1 ? "none" : "auto"; sv.style.cursor = MV.z > 1 ? "grab" : ""; }
+  function mapClamp() { MV.x = Math.max(0, Math.min(1060 - MV.w, MV.x)); MV.y = Math.max(0, Math.min(560 - MV.h, MV.y)); }
+  function mapZoom(z, cx, cy) {
+    z = Math.max(1, Math.min(6, z)); var nw = 1060 / z, nh = 560 / z;
+    if (cx === undefined) { cx = MV.x + MV.w / 2; cy = MV.y + MV.h / 2; }
+    var fx = (cx - MV.x) / MV.w, fy = (cy - MV.y) / MV.h;
+    MV.x = cx - fx * nw; MV.y = cy - fy * nh; MV.w = nw; MV.h = nh; MV.z = z; mapClamp(); mapApply();
+  }
+  function mapPt(e) { var sv = document.getElementById("map"), m = sv.getScreenCTM(); if (!m) return { x: MV.x, y: MV.y }; var pt = sv.createSVGPoint(); pt.x = e.clientX; pt.y = e.clientY; var q = pt.matrixTransform(m.inverse()); return { x: q.x, y: q.y }; }
+  (function () {
+    var sv = document.getElementById("map"); if (!sv) return;
+    function dist() { var k = Object.keys(mptr); if (k.length < 2) return 0; return Math.hypot(mptr[k[0]].x - mptr[k[1]].x, mptr[k[0]].y - mptr[k[1]].y); }
+    sv.addEventListener("pointerdown", function (e) {
+      mptr[e.pointerId] = { x: e.clientX, y: e.clientY }; var n = Object.keys(mptr).length;
+      if (n === 1) mdrag = { sx: e.clientX, sy: e.clientY, x0: MV.x, y0: MV.y, moved: false };
+      else if (n === 2) { mdrag = null; var k = Object.keys(mptr), mid = mapPt({ clientX: (mptr[k[0]].x + mptr[k[1]].x) / 2, clientY: (mptr[k[0]].y + mptr[k[1]].y) / 2 }); mpinch = { d0: dist() || 1, z0: MV.z, c: mid }; }
+    });
+    sv.addEventListener("pointermove", function (e) {
+      if (!mptr[e.pointerId]) return; mptr[e.pointerId] = { x: e.clientX, y: e.clientY };
+      if (mpinch && Object.keys(mptr).length >= 2) { mblock = true; mapZoom(mpinch.z0 * dist() / mpinch.d0, mpinch.c.x, mpinch.c.y); return; }
+      if (mdrag && MV.z > 1) {
+        var dx = e.clientX - mdrag.sx, dy = e.clientY - mdrag.sy;
+        if (!mdrag.moved && Math.hypot(dx, dy) > 6) { mdrag.moved = true; try { sv.setPointerCapture(e.pointerId); } catch (x) { /* egal */ } sv.style.cursor = "grabbing"; }
+        if (mdrag.moved) { var m = sv.getScreenCTM(); if (m) { MV.x = mdrag.x0 - dx / m.a; MV.y = mdrag.y0 - dy / m.d; mapClamp(); mapApply(); } }
+      }
+    });
+    function up(e) {
+      delete mptr[e.pointerId];
+      if (mdrag && mdrag.moved || mpinch) { mblock = true; setTimeout(function () { mblock = false; }, 80); }
+      if (Object.keys(mptr).length < 2) mpinch = null; if (!Object.keys(mptr).length) { mdrag = null; mapApply(); }
+    }
+    sv.addEventListener("pointerup", up); sv.addEventListener("pointercancel", up);
+    sv.addEventListener("wheel", function (e) { if (!(e.ctrlKey || e.metaKey)) return; e.preventDefault(); var p = mapPt(e); mapZoom(MV.z * (e.deltaY < 0 ? 1.25 : 0.8), p.x, p.y); }, { passive: false });
+    sv.addEventListener("dblclick", function (e) { var p = mapPt(e); mapZoom(MV.z > 1 ? 1 : 2.5, p.x, p.y); });
+    document.addEventListener("click", function (e) { if (mblock) { e.stopPropagation(); e.preventDefault(); } }, true);
+  })();
+
   buildMap();
   applyLayout();
   updateAll();
