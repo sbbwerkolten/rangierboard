@@ -365,11 +365,24 @@ body.dragmode { user-select: none; cursor: grabbing; }
 .wlfil select { min-height: 32px; padding: 2px 6px; }
 .top > *, .topr { min-width: 0; max-width: 100%; }
 .meLbl select { max-width: min(220px, 46vw); text-overflow: ellipsis; }
+.conn { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; line-height: 1.2; padding: 5px 10px; border: 1px solid var(--line); border-radius: 999px; background: var(--surface); color: var(--ink-2); white-space: nowrap; }
+.conn i { width: 9px; height: 9px; border-radius: 50%; background: #8a949e; flex: none; }
+.conn.ok i { background: #2e9d5b; }
+.conn.warn i { background: #d98b00; }
+.conn.off i { background: #c0392b; }
+.bellb { position: relative; min-width: 40px; }
+.bellb .bdg { position: absolute; top: -6px; right: -6px; min-width: 18px; height: 18px; padding: 0 4px; border-radius: 9px; background: #c0392b; color: #fff; font-size: 11px; line-height: 18px; text-align: center; font-weight: 700; }
+.notep { width: min(360px, calc(100vw - 32px)); max-height: 70vh; overflow: auto; }
+.notep .ni { padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; font-size: 13px; line-height: 1.4; background: var(--bg); }
+.notep .ni.new { border-color: var(--accent); background: var(--acc-bg); }
+.notep .ni small { display: block; color: var(--ink-2); font-size: 11px; }
 </style>
 
 <header class="top">
   <div class="brandw"><div class="brand"><b>Rangier-Board</b><span>Werk Olten</span></div><div class="logoslot" id="logoSlot" hidden></div></div>
-  <div class="topr"><label class="meLbl"><span class="meta">Profil</span><select id="me" aria-label="Profil"></select></label><span class="tag">Prototyp</span>
+  <div class="topr"><span class="conn" id="connPill" role="status" aria-live="polite"><i></i><span>Verbindung …</span></span>
+    <div class="menuw"><button class="btn small bellb" type="button" data-act="bell" id="bellBtn" aria-label="Mitteilungen" aria-haspopup="true">🔔<span class="bdg" id="bellN" hidden>0</span></button><div class="menu notep" id="notePanel" hidden></div></div>
+    <label class="meLbl"><span class="meta">Profil</span><select id="me" aria-label="Profil"></select></label><span class="tag">Prototyp</span>
     <div class="menuw"><button class="btn small" type="button" data-act="menu" id="menuBtn" aria-haspopup="true" aria-expanded="false">☰ Menü</button>
       <div class="menu" id="menuPanel" hidden>
         <div class="menusec" id="loginBox"></div>
@@ -1013,7 +1026,7 @@ body.dragmode { user-select: none; cursor: grabbing; }
     "a-day": ["Ausgang: Titel und Tag", ["ausgang"]], "a-poll": ["Ausgang: Rundfrage heute", ["ausgang", "dispo"]], "a-ready": ["Ausgang: Fertig gemeldet", ["ausgang", "dispo"]],
     "p-form": ["Dispo: Fahrzeug im RB erfassen", ["dispo"]], "p-list": ["Dispo: Erfasste Fahrzeuge", ["dispo"]],
     "m-day": ["Manöver: Titel, Tag und Ansicht", ["crew"]], "m-avail": ["Manöver: Zum Übernehmen", ["crew"]], "m-mine": ["Manöver: Meine Aufträge", ["crew"]],
-    "adm-staff": ["Admin: Mitarbeiter", ["admin"]], "adm-bereiche": ["Admin: Bereiche", ["admin"]], "adm-rollen": ["Admin: Rollen", ["admin"]], "adm-stat": ["Admin: Statistik", ["admin"]], "adm-sug": ["Admin: Verbesserungsvorschläge", ["admin"]], "adm-logo": ["Admin: Logo", ["admin"]], "adm-demo": ["Admin: Demomodus", ["admin"]], "adm-data": ["Admin: Daten", ["admin"]]
+    "adm-staff": ["Admin: Mitarbeiter", ["admin"]], "adm-bereiche": ["Admin: Bereiche", ["admin"]], "adm-rollen": ["Admin: Rollen", ["admin"]], "adm-stat": ["Admin: Statistik", ["admin"]], "adm-sug": ["Admin: Verbesserungsvorschläge", ["admin"]], "adm-logo": ["Admin: Logo", ["admin"]], "adm-demo": ["Admin: Demomodus", ["admin"]], "adm-fz": ["Admin: Fahrzeuge erfassen", ["admin"]], "adm-bak": ["Admin: Backup und Export", ["admin"]], "adm-data": ["Admin: Daten", ["admin"]]
   };
   Object.keys(FTILES).forEach(function (k) { TILES[k] = [FTILES[k][0], "side"]; });
   function viewTiles(v) { return Object.keys(FTILES).filter(function (k) { return FTILES[k][1].indexOf(v) >= 0; }); }
@@ -1487,20 +1500,74 @@ body.dragmode { user-select: none; cursor: grabbing; }
   function dataCard() { return '<div class="card"><p class="meta">Löscht alle Fahrzeuge, Aufträge und Abwesenheiten auf diesem Gerät. Mitarbeiter, Bereiche, Rollen und Layouts bleiben erhalten.</p><button class="btn danger" type="button" data-act="reset" id="resetBtn">Daten löschen</button></div>'; }
   var DEMOSET = [["ewiv", ["118", "119", "120", "121", "122", "123"]], ["ec", ["10-90 233", "10-90 241"]], ["523", ["523 090", "523 104", "523 111", "523 120"]], ["521", ["521 019", "521 027"]], ["522", ["522 224", "522 230"]], ["524", ["524 101"]], ["511a", ["511 107"]], ["511b", ["511 031"]], ["514", ["514 003"]]];
   function startDemo() {
-    var made = 0, rbN = 0, list = [], bs = pollB().length ? pollB() : BEREICHE;
+    var made = 0, rbN = 0, list = [], bs = (pollB().length ? pollB() : BEREICHE).slice(), k630 = BEREICHE.filter(function (b) { return /630/.test(b); })[0], nCar = 0, nTz = 0;
+    if (k630 && bs.indexOf(k630) < 0) bs.push(k630);
+    var bsCar = bs.filter(function (b) { return b !== k630; }); if (!bsCar.length) bsCar = bs;
     DEMOSET.forEach(function (g) { var df = TYPEDEFS.filter(function (x) { return x.k === g[0]; })[0]; g[1].forEach(function (n) { list.push([df, n]); }); });
     var cand = TRKLIST.filter(function (t) { return t.zone === "abstell" || t.zone === "abstell2" || t.zone === "halle"; });
     list.forEach(function (it, i) {
       var df = it[0], nm = df.prefix + " " + it[1];
       if (state.trains.some(function (x) { return x.name.toLowerCase() === nm.toLowerCase(); })) return;
       var nid = "T" + (state.trains.reduce(function (m, x) { return Math.max(m, parseInt(x.id.slice(1), 10) || 0); }, 0) + 1);
-      var t = { id: nid, name: nm, short: df.short, type: df.type, len: df.len, track: "RB", lenNote: df.note, side: "S", seq: ++state.seq, since: nowT(), demo: true, bereich: bs[i % bs.length] };
+      var t = { id: nid, name: nm, short: df.short, type: df.type, len: df.len, track: "RB", lenNote: df.note, side: "S", seq: ++state.seq, since: nowT(), demo: true, bereich: df.type === "car" ? bsCar[nCar++ % bsCar.length] : bs[nTz++ % bs.length] };
       if (i % 3 !== 2) { for (var k = 0; k < cand.length; k++) { var tk = cand[(k + i * 2) % cand.length]; t.track = ""; if (fit(tk.id, t).ok) { t.track = tk.id; break; } } if (!t.track) t.track = "RB"; }
       if (t.track === "RB") { t.arrive = ("0" + (7 + (rbN % 8))).slice(-2) + ":" + (rbN % 2 ? "30" : "00"); rbN++; }
       state.trains.push(t); made++;
     });
     state.demo = true; state.demoEnd = 0; logEvent("Demomodus: " + made + " Fahrzeuge eingetragen");
     save(); updateAll(); toast(made ? "Demomodus: " + made + " Fahrzeuge sind eingetragen." : "Die Demo-Fahrzeuge sind schon vorhanden.");
+  }
+  var DS = { run: false, timers: [], n: 0 };
+  function dsStop(msg) { DS.timers.forEach(clearTimeout); DS.timers = []; DS.run = false; if (msg) toast(msg); if (ui.view === "admin") renderPanel(); }
+  function dsPerson(o) { var m = GROUPS.manoever || [], ok = m.filter(function (p) { return canDriveO(p, o) && !absKind(p, odate(o)); }); return ok.length ? ok[(DS.n++) % ok.length] : (m[0] || ""); }
+  function dsOrder(t, type, to, x) {
+    var o = { id: "V-" + state.nextNo++, trainId: t.id, from: t.track, date: todayStr(), type: type, to: to, prio: "Normal", bereich: type === "in" ? "Koordination" : (t.bereich || "Koordination"), time: "", note: "Demo-Ablauf", status: "offen", t: nowT(), demo: true };
+    Object.keys(x || {}).forEach(function (k) { o[k] = x[k]; }); if (isHall(to)) o.side = "S";
+    state.orders.push(o); logEvent(o.id + " bestellt: " + t.name + " von " + tshort(o.from) + " nach " + tshort(to) + " (" + o.bereich + ")"); save(); updateAll(); return o;
+  }
+  function dsAssign(o) { var who = dsPerson(o); if (needsShunter(o)) { o.shunter = shunterOf(o); o.time = o.time || defTime(o); } o.assignee = who; o.status = "zugewiesen"; o.tAssigned = nowT(); logEvent(o.id + " an " + who + " zugewiesen"); save(); updateAll(); return who; }
+  function dsGo(o) { var t = trainById(o.trainId); o.status = "unterwegs"; o.tStart = nowT(); o.from = t.track; logEvent(o.assignee + " startet " + t.name + " nach " + tshort(o.to)); save(); updateAll(); }
+  function dsDone(o) {
+    var t = trainById(o.trainId); t.track = o.to; t.seq = ++state.seq; t.since = nowT(); if (isHall(o.to)) t.side = o.side || "S";
+    if (o.type === "out" && o.to === "RB") { t.outAt = todayStr(); t.outNow = true; (state.outDone = state.outDone || []).push({ id: t.id, name: t.name, date: todayStr() }); }
+    if (o.type === "in") { delete t.outAt; delete t.outNow; delete t.fertig; }
+    o.actual = o.to; o.status = "erledigt"; o.tDone = nowT(); ui.selTrain = t.id; logEvent(o.assignee + " meldet " + t.name + " auf " + tshort(o.to)); save(); updateAll();
+  }
+  function dsFreeTrack(t, zones) { var c = TRKLIST.filter(function (k) { return zones.indexOf(k.zone) >= 0 && k.id !== t.track; }); for (var i = 0; i < c.length; i++) { if (fit(c[i].id, t).ok) return c[i].id; } return ""; }
+  function demoScript() {
+    if (DS.run || !admOK()) return;
+    if (state.trains.some(function (t) { return t.demo; })) clearDemo();
+    startDemo();
+    shiftClock(function () { var t7 = nowD(); t7.setHours(7, 30, 0, 0); state.sim += t7.getTime() - nowD().getTime(); });
+    var demo = state.trains.filter(function (t) { return t.demo; }), rb = demo.filter(function (t) { return t.track === "RB"; }).slice(0, 2), wk = demo.filter(function (t) { return t.track !== "RB"; }), steps = [];
+    function add(ms, fn) { steps.push([ms, fn]); }
+    rb.forEach(function (r) {
+      var o;
+      add(2600, function () { var to = dsFreeTrack(r, ["abstell", "abstell2"]); if (!to) return; toast("Koordination legt die Einfahrt für " + r.name + " an."); o = dsOrder(r, "in", to, { time: r.arrive || "08:00" }); });
+      add(4500, function () { if (o) { var w = dsAssign(o); toast(o.id + " wird " + (w || "einem Rangierer") + " zugewiesen."); } });
+      add(3200, function () { if (o) { dsGo(o); toast((o.assignee || "Ein Rangierer") + " fährt " + r.name + " ins Werk."); } });
+      add(3200, function () { if (o) { dsDone(o); toast(r.name + " steht auf " + tshort(o.to) + ". Der Gleisplan ist aktuell."); } });
+    });
+    wk.slice(0, 2).forEach(function (w, i) {
+      var o;
+      add(2600, function () { var to = dsFreeTrack(w, ["halle"]); if (!to) return; toast("Werkstatt " + (w.bereich || "") + " bestellt eine Verschiebung für " + w.name + "."); o = dsOrder(w, "move", to, { time: "09:00" }); });
+      if (i === 1) add(4500, function () { if (o) { var old = o.time; o.time = "10:30"; logEvent(o.id + ": Koordination ändert die Zeit von " + old + " auf " + o.time + " Uhr"); save(); updateAll(); toast("Koordination ändert die Zeit von " + o.id + " auf " + o.time + " Uhr."); } });
+      add(i === 1 ? 3200 : 4500, function () { if (o) { var w2 = dsAssign(o); toast(o.id + " wird " + (w2 || "einem Rangierer") + " zugewiesen."); } });
+      add(3200, function () { if (o) { dsGo(o); toast((o.assignee || "Ein Rangierer") + " startet die Verschiebung."); } });
+      add(3200, function () { if (o) { dsDone(o); toast(w.name + " steht auf " + tshort(o.to) + "."); } });
+    });
+    var ou = wk[2];
+    if (ou) {
+      var oo;
+      add(2600, function () { toast("Werkstatt meldet " + ou.name + " fertig zur Ausfahrt."); oo = dsOrder(ou, "out", "RB", {}); });
+      add(4500, function () { if (oo) { var w3 = dsAssign(oo); toast(oo.id + " wird " + (w3 || "einem Rangierer") + " zugewiesen."); } });
+      add(3200, function () { if (oo) { dsGo(oo); toast((oo.assignee || "Ein Rangierer") + " fährt " + ou.name + " in den RB."); } });
+      add(3200, function () { if (oo) { dsDone(oo); toast(ou.name + " ist ausgefahren und aus der Liste entfernt."); } });
+    }
+    add(2400, function () { dsStop("Demo-Ablauf beendet. Unter Admin → Demomodus kannst du die Demo-Fahrzeuge wieder entfernen."); });
+    DS.run = true; DS.n = 0; var acc = 1500;
+    steps.forEach(function (st) { acc += st[0]; DS.timers.push(setTimeout(function () { if (!DS.run) return; try { st[1](); } catch (e) { if (window.console) console.warn("Demo-Schritt übersprungen", e); } }, acc)); });
+    toast("Demo-Ablauf gestartet: Fahrzeuge, Bestellungen, Zuweisungen und Fahrten laufen automatisch."); renderPanel();
   }
   function clearDemo() {
     var ids = {}; state.trains.forEach(function (t) { if (t.demo) ids[t.id] = 1; });
@@ -1512,7 +1579,7 @@ body.dragmode { user-select: none; cursor: grabbing; }
   }
   function demoCard() {
     var n = state.trains.filter(function (t) { return t.demo; }).length;
-    return '<div class="card"><p class="meta">Trägt 20 Fahrzeuge ein (Triebzüge und Einzelwagen), die meisten im Werk, einige im RB mit Ankunftszeit. Die Fahrzeuge verteilen sich auf die Bereiche. Mit «Demo-Fahrzeuge entfernen» verschwinden nur diese wieder.</p><div class="row"><button class="btn pri" type="button" data-act="demostart">Demomodus starten (20 Fahrzeuge)</button><button class="btn" type="button" data-act="democlear"' + (n ? "" : " disabled") + ">Demo-Fahrzeuge entfernen" + (n ? " (" + n + ")" : "") + "</button></div></div>";
+    return '<div class="card"><p class="meta">Trägt 20 Fahrzeuge ein (Triebzüge und Einzelwagen), die meisten im Werk, einige im RB mit Ankunftszeit. Triebzüge verteilen sich auf alle Bereiche, Einzelwagen auf alle ausser Kst 630. Mit «Demo-Fahrzeuge entfernen» verschwinden nur diese wieder.</p><div class="row"><button class="btn pri" type="button" data-act="demostart">Demomodus starten (20 Fahrzeuge)</button><button class="btn" type="button" data-act="democlear"' + (n ? "" : " disabled") + ">Demo-Fahrzeuge entfernen" + (n ? " (" + n + ")" : "") + '</button></div><p class="meta">Oder ein fertiger Ablauf: Er stellt die Demo-Uhr auf 07:30, trägt Fahrzeuge ein und führt Einfahrten, Verschiebungen, eine Zeitänderung und eine Ausfahrt Schritt für Schritt aus. Auf anderen Geräten erscheinen dabei die Mitteilungen.</p><div class="row">' + (DS.run ? '<button class="btn danger" type="button" data-act="demostop">Demo-Ablauf stoppen</button>' : '<button class="btn pri" type="button" data-act="demoscript">Demo-Ablauf mit Drehbuch starten</button>') + "</div></div>";
   }
   function bereichOptCard() {
     return '<div class="card"><p class="meta">Was ein Bereich kann: Nimmt er an der Rundfrage zum Ausgang teil? Ohne Rundfrage kann seine Werkstatt Fahrzeuge ohne vorherige Anmeldung fertig melden.</p>' + BEREICHE.map(function (b) {
@@ -1563,12 +1630,41 @@ body.dragmode { user-select: none; cursor: grabbing; }
       '<div class="tscroll"><table class="stat"><thead><tr><th>Kostenstelle</th><th>Tage mit Antwort</th><th>Zum Ausgang gemeldet</th><th>Nachgemeldet</th><th>Wieder abgemeldet (ab 14:00)</th><th>Gemeldet, aber nicht ausgefahren</th></tr></thead><tbody>' + body + '</tbody><tfoot><tr><th scope="row">Total</th><td>' + tot.tage + "</td><td>" + tot.gem + "</td><td>" + tot.late + "</td><td>" + tot.cancel + "</td><td>" + tot.nicht + "</td></tr></tfoot></table></div>" +
       '<p class="meta">Quote ausgefahren (vergangene Tage, ohne Abmeldungen): ' + (tot.ok + tot.nicht ? Math.round(100 * tot.ok / (tot.ok + tot.nicht)) + " %" : "noch keine Daten") + ".</p></div>";
   }
+  function fzCard() {
+    var ids = ["RB"]; TRKLIST.forEach(function (k) { if (ids.indexOf(k.id) < 0) ids.push(k.id); });
+    var d = ui.fz = ui.fz || { type: "523" };
+    var h = '<form class="card" id="fzForm" novalidate><h3>Neues Fahrzeug erfassen</h3><p class="meta">Erfasst ein Fahrzeug mit allen Angaben, im RB oder direkt auf einem Gleis.</p>' +
+      '<div class="field"><label for="fz-type">Fahrzeugtyp</label><select id="fz-type">' + TYPEDEFS.map(function (x) { return '<option value="' + x.k + '"' + (x.k === d.type ? " selected" : "") + ">" + esc(x.label) + "</option>"; }).join("") + "</select></div>" +
+      '<div class="field"><label for="fz-num">Fahrzeugnummer</label><input type="text" id="fz-num" autocomplete="off" placeholder="z. B. 523 090"></div>' +
+      '<div class="field"><label for="fz-b">Bereich (Kostenstelle)</label><select id="fz-b"><option value="">Noch kein Bereich</option>' + BEREICHE.map(function (b) { return '<option value="' + esc(b) + '">' + esc(b) + "</option>"; }).join("") + "</select></div>" +
+      '<div class="field"><label for="fz-trk">Standort</label><select id="fz-trk">' + ids.map(function (i) { return '<option value="' + esc(i) + '">' + esc(tname(i)) + "</option>"; }).join("") + "</select></div>" +
+      '<div class="field"><label for="fz-side">Seite (nur Halle)</label><select id="fz-side"><option value="S">Süd</option><option value="N">Nord</option></select></div>' +
+      '<div class="field"><label for="fz-date">Ankunft im RB (Datum)</label><input type="date" id="fz-date" value="' + todayStr() + '"></div>' +
+      '<div class="field"><label for="fz-time">Ankunftszeit im RB (Uhr)</label><input type="time" id="fz-time"></div>' +
+      '<div class="field"><label for="fz-len">Länge in Metern (leer = Standard des Typs)</label><input type="text" id="fz-len" inputmode="decimal" autocomplete="off"></div>' +
+      '<div class="field"><label for="fz-note">Hinweis</label><input type="text" id="fz-note" autocomplete="off" placeholder="z. B. Türen defekt"></div>' +
+      '<p class="hint" id="fz-hint" aria-live="polite"></p><button class="btn pri" type="submit">Fahrzeug erfassen</button></form>';
+    h += '<div class="card"><h3>Erfasste Fahrzeuge (' + state.trains.length + ')</h3>' + (state.trains.length ? state.trains.map(function (t) {
+      var busy = state.orders.some(function (o) { return isOpenOrder(o) && ordHas(o, t.id); });
+      return '<div class="row"><span style="flex:1;min-width:140px"><b>' + esc(t.name) + '</b> <span class="meta">' + esc(tname(t.track)) + (t.bereich ? " · " + esc(t.bereich) : "") + (t.demo ? " · Demo" : "") + '</span></span><button class="btn small danger" type="button" data-act="fzdel" data-id="' + esc(t.id) + '"' + (busy ? ' disabled title="Es läuft noch ein Auftrag"' : "") + ">Entfernen</button></div>";
+    }).join("") : '<div class="empty">Noch keine Fahrzeuge erfasst.</div>') + "</div>";
+    return h;
+  }
+  function backupData() {
+    var o = { rbbackup: 1, at: new Date().toISOString(), version: APPVER, data: sharedOf() }; o.outDone = state.outDone || []; return o;
+  }
+  function backupCard() {
+    return '<div class="card"><p class="meta">Das Backup enthält alles: Fahrzeuge, Aufträge, Abwesenheiten, Schichtplan, Mitarbeiter, Rollen, Bereiche, Logo, Layouts und Protokoll. Speichere es als Datei oder kopiere den Text.</p>' +
+      '<div class="row"><button class="btn pri" type="button" data-act="bakdl">Backup speichern</button></div>' +
+      '<label class="meta" for="bak-t">Backup-Text (zum Kopieren oder Einfügen)</label><textarea id="bak-t" rows="4" placeholder="Hier erscheint das Backup oder füge ein Backup ein …"></textarea>' +
+      '<div class="row"><label class="btn" for="bak-file" style="cursor:pointer">Backup-Datei wählen</label><input type="file" id="bak-file" accept=".json,application/json,text/plain" style="position:absolute;left:-9999px"><button class="btn danger" type="button" data-act="bakimp" id="bakImp">Backup einspielen (ersetzt alles)</button></div><p class="hint" id="bak-hint" aria-live="polite"></p></div>';
+  }
   function viewAdmin() {
     if (!admOK()) return '<div class="stack"><h2>Admin</h2><div class="card"><p>Der Admin-Bereich ist nur für den Besitzer dieser Seite offen. Der Zugang läuft über das Claude-Konto: Öffne die Seite angemeldet bei claude.ai, dann erscheinen hier die Einstellungen.</p><p class="meta">Wer die Seite nur ansieht, kann Namen, Bereiche und Rollen nicht ändern.</p></div></div>';
     return '<div class="stack"><!--T:adm-staff--><h2>Admin</h2><div class="note">Angemeldet mit deinem Claude-Konto (Besitzer). ' + (cfgRef ? "Änderungen gelten für alle, die die Seite angemeldet öffnen." : "Die gemeinsame Ablage ist gerade nicht erreichbar. Änderungen gelten vorerst nur auf diesem Gerät.") + '</div><div class="sec">Mitarbeiter</div>' + staffCard() +
       '<!--T:adm-bereiche--><div class="sec">Bereiche</div><p class="meta">Bereiche erscheinen bei der Bestellung (wer bestellt).</p>' + listCard(BEREICHE, "bn-", "renb", "rmb", "addb", "Bereich", null, "b") + bereichOptCard() +
       '<!--T:adm-rollen--><div class="sec">Rollen</div><p class="meta">Pro Rolle legst du fest, welche Reiter sichtbar sind und was sie darf. Neue Rollen starten nur mit dem Reiter Gleisplan. Die festen Rollen lassen sich nicht umbenennen oder entfernen, ihre Rechte aber schon (Admin bleibt immer voll).</p>' + rolesCard() +
-      '<!--T:adm-stat--><div class="sec">Statistik Ausgang</div>' + statCard() + '<!--T:adm-sug--><div class="sec">Verbesserungsvorschläge</div>' + sugCard() + '<!--T:adm-logo--><div class="sec">Logo</div>' + logoCard() + '<!--T:adm-demo--><div class="sec">Demomodus</div>' + demoCard() + '<!--T:adm-data--><div class="sec">Daten</div>' + dataCard() + "</div>";
+      '<!--T:adm-stat--><div class="sec">Statistik Ausgang</div>' + statCard() + '<!--T:adm-sug--><div class="sec">Verbesserungsvorschläge</div>' + sugCard() + '<!--T:adm-logo--><div class="sec">Logo</div>' + logoCard() + '<!--T:adm-demo--><div class="sec">Demomodus</div>' + demoCard() + '<!--T:adm-fz--><div class="sec">Fahrzeuge erfassen</div>' + fzCard() + '<!--T:adm-bak--><div class="sec">Backup und Export</div>' + backupCard() + '<!--T:adm-data--><div class="sec">Daten</div>' + dataCard() + "</div>";
   }
   function manualCard() {
     if (!state.trains.length) return '<div class="empty">Noch keine Fahrzeuge erfasst.</div>';
@@ -1677,8 +1773,9 @@ body.dragmode { user-select: none; cursor: grabbing; }
   }
   function weekKey() { var d = new Date(); d.setHours(12, 0, 0, 0); var wd = (d.getDay() + 6) % 7; d.setDate(d.getDate() - wd); return d.getFullYear() + "-" + ("0" + (d.getMonth() + 1)).slice(-2) + "-" + ("0" + d.getDate()).slice(-2); }
   function authValid() { return !!state.auth && allNames().indexOf(state.auth) >= 0 && state.authWeek === weekKey(); }
-  var APPVER = "v38";
+  var APPVER = "v39";
   var CHANGELOG = [
+    { d: "20.11.2026", t: "Neu: Verbindungsanzeige, Mitteilungen (Glocke), Offline-Nachmeldung, Demo-Ablauf mit Drehbuch, Fahrzeuge und Backup im Admin. Kst 630 bekommt in der Demo nur Triebzüge." },
     { d: "20.11.2026", t: "Demo-Fahrzeuge und Demo-Uhr starten nicht mehr von selbst: Die Uhr läuft nach dem Neuladen wieder in Echtzeit, beendete Demo-Fahrzeuge kommen nicht zurück." },
     { d: "20.11.2026", t: "Neue Startseite mit Gleisplan. Anmeldung bleibt bis Ende der Arbeitswoche bestehen. Layout-Export und -Import nur noch für den Admin." },
     { d: "19.11.2026", t: "Gleisplan lässt sich verschieben und zoomen. Neue Kacheln im Layout schliessen direkt an die unterste an. Online-Datenbank für mehrere Geräte." }
@@ -1890,6 +1987,26 @@ body.dragmode { user-select: none; cursor: grabbing; }
     else if (act === "mzin") mapZoom(MV.z * 1.4);
     else if (act === "mzout") mapZoom(MV.z / 1.4);
     else if (act === "mzfit") mapZoom(1);
+    else if (act === "fzdel") {
+      var fdt = trainById(id); if (!fdt || !admOK()) return;
+      if (state.orders.some(function (x) { return isOpenOrder(x) && ordHas(x, fdt.id); })) { toast(fdt.name + " hat noch einen offenen Auftrag."); return; }
+      state.trains = state.trains.filter(function (x) { return x.id !== fdt.id; }); if (ui.selTrain === fdt.id) ui.selTrain = null; logEvent("Admin entfernt " + fdt.name); save(); updateAll(); toast(fdt.name + " entfernt.");
+    }
+    else if (act === "bakdl") {
+      var bk = JSON.stringify(backupData()), bt = $("#bak-t"); if (bt) bt.value = bk;
+      try { var bl = new Blob([bk], { type: "application/json" }), au = document.createElement("a"); au.href = URL.createObjectURL(bl); au.download = "rangierboard-backup-" + todayStr() + ".json"; document.body.appendChild(au); au.click(); setTimeout(function () { URL.revokeObjectURL(au.href); au.remove(); }, 1500); } catch (x) { /* Text bleibt zum Kopieren */ }
+      toast("Backup erstellt. Falls keine Datei erscheint, kopiere den Text im Feld.");
+    }
+    else if (act === "bakimp") {
+      var bh = $("#bak-hint"), im2; try { im2 = JSON.parse(($("#bak-t") || {}).value || ""); } catch (x) { im2 = null; }
+      if (!im2 || im2.rbbackup !== 1 || !im2.data || !Array.isArray(im2.data.trains)) { bh.className = "hint err"; bh.textContent = "Der Text ist kein gültiges Backup."; ui.bakArm = false; return; }
+      if (!ui.bakArm) { ui.bakArm = true; bh.className = "hint err"; bh.textContent = "Alle aktuellen Daten werden ersetzt. Zum Bestätigen nochmals auf «Backup einspielen» drücken."; return; }
+      ui.bakArm = false; Object.keys(im2.data).forEach(function (k) { if (SHARED_KEYS.indexOf(k) >= 0) state[k] = JSON.parse(JSON.stringify(im2.data[k])); });
+      state.outDone = im2.outDone || []; state.staff = normStaff(state.staff); GROUPS = state.staff; BEREICHE = state.bereiche; if (state.rollen) ROLLEN = state.rollen; ensureOwner();
+      logEvent("Backup eingespielt (" + (im2.at || "") + ")"); save(); applyLayout(); updateAdminBtn(); updateAll(); toast("Backup eingespielt.");
+    }
+    else if (act === "demoscript") demoScript();
+    else if (act === "demostop") dsStop("Demo-Ablauf gestoppt.");
     else if (act === "demostart") { if (!admOK()) return; startDemo(); }
     else if (act === "democlear") { if (!admOK()) return; clearDemo(); }
     else if (act === "menu") { setMenu(!ui.menu); }
@@ -2162,6 +2279,10 @@ body.dragmode { user-select: none; cursor: grabbing; }
     onField(e);
   });
   document.addEventListener("input", function (e) { var f = e.target.getAttribute && e.target.getAttribute("data-f"); if (f === "note" || f === "time" || f === "dur") draft[f] = e.target.value; var sf = e.target.getAttribute && e.target.getAttribute("data-s"); if (sf === "name") ui.staff.name = e.target.value; var ii = e.target.getAttribute && e.target.getAttribute("data-i"); if (ii === "num" || ii === "note" || ii === "time") ui.inb[ii] = e.target.value; });
+  document.addEventListener("change", function (e) {
+    if (e.target.id !== "bak-file" || !e.target.files || !e.target.files[0]) return;
+    var fr = new FileReader(); fr.onload = function () { var bt = $("#bak-t"); if (bt) bt.value = String(fr.result || ""); ui.bakArm = false; var bh = $("#bak-hint"); if (bh) { bh.className = "hint"; bh.textContent = "Datei geladen. Jetzt «Backup einspielen» drücken."; } }; fr.readAsText(e.target.files[0]);
+  });
   document.addEventListener("toggle", function (e) { var d = e.target; if (d && d.classList && d.classList.contains("staffrow")) ui.openStaff[d.getAttribute("data-n")] = d.open; }, true);
   document.addEventListener("input", function (e) { var pf = e.target.getAttribute && e.target.getAttribute("data-p"); if (pf === "num" || pf === "time") ui.dsp[pf] = e.target.value; });
   document.addEventListener("submit", function (e) {
@@ -2184,6 +2305,25 @@ body.dragmode { user-select: none; cursor: grabbing; }
       state.trains.push(dt);
       logEvent("Dispo erfasst " + dname + " im RB" + (d.bereich ? " (Bereich " + d.bereich + ")" : "") + ", Ankunft " + arriveText(dt));
       d.num = ""; d.time = ""; save(); updateAll(); toast(dname + " ist im RB erfasst. Die Koordination kann die Einfahrt zuweisen.");
+      return;
+    }
+    if (e.target.id === "fzForm") {
+      if (!admOK()) return;
+      var fh = $("#fz-hint"), fbad = function (m) { fh.className = "hint err"; fh.textContent = m; };
+      var fdf = TYPEDEFS.filter(function (x) { return x.k === $("#fz-type").value; })[0], fnum = ($("#fz-num").value || "").trim();
+      if (!fnum) return fbad("Bitte die Fahrzeugnummer eingeben, zum Beispiel " + fdf.ph + ".");
+      var fce = checkNum(fdf, fnum); if (fce) return fbad(fce);
+      var fname = fdf.prefix + " " + fnum;
+      if (state.trains.some(function (x) { return x.name.toLowerCase() === fname.toLowerCase(); })) return fbad(fname + " ist schon erfasst.");
+      var ftrk = $("#fz-trk").value || "RB", flen = parseFloat(($("#fz-len").value || "").replace(",", "."));
+      var fid = "T" + (state.trains.reduce(function (m, x) { return Math.max(m, parseInt(x.id.slice(1), 10) || 0); }, 0) + 1);
+      var ft = { id: fid, name: fname, short: fdf.short, type: fdf.type, len: flen > 0 ? flen : fdf.len, track: ftrk, lenNote: fdf.note, side: "S", seq: ++state.seq, since: nowT() };
+      if ($("#fz-b").value) ft.bereich = $("#fz-b").value;
+      var fno = ($("#fz-note").value || "").trim(); if (fno) ft.lenNote = fdf.note ? fdf.note + ", " + fno : fno;
+      if (ftrk === "RB") { if ($("#fz-time").value) ft.arrive = $("#fz-time").value; if ($("#fz-date").value > todayStr()) ft.future = $("#fz-date").value; }
+      else { if (!fit(ftrk, ft).ok) return fbad(tshort(ftrk) + " ist für " + fname + " zu kurz oder belegt."); if (isHall(ftrk)) ft.side = $("#fz-side").value || "S"; }
+      state.trains.push(ft); logEvent("Admin erfasst " + fname + " auf " + tshort(ftrk) + (ft.bereich ? " (Bereich " + ft.bereich + ")" : ""));
+      save(); updateAll(); toast(fname + " ist erfasst.");
       return;
     }
     if (e.target.id === "staffForm") {
@@ -2428,8 +2568,8 @@ body.dragmode { user-select: none; cursor: grabbing; }
     }
     var ops = []; rbDiff(DBS.base, remote, [], 0, ops);
     if (!ops.length) return;
-    var loc = dbLocal(); rbApply(loc, ops); DB_KEYS.forEach(function (k) { if (loc[k] !== undefined) state[k] = loc[k]; });
-    DBS.base = JSON.parse(JSON.stringify(remote)); saveLocal(); dbRender();
+    var nb2 = snapOrders(), loc = dbLocal(); rbApply(loc, ops); DB_KEYS.forEach(function (k) { if (loc[k] !== undefined) state[k] = loc[k]; });
+    DBS.base = JSON.parse(JSON.stringify(remote)); saveLocal(); notifyDiff(nb2); dbRender();
   }
   function dbPush() {
     if (!DBS.on || !DBS.inited) return;
@@ -2475,19 +2615,29 @@ body.dragmode { user-select: none; cursor: grabbing; }
   }
   function rtApplyLocal() { state.staff = normStaff(state.staff); GROUPS = state.staff; BEREICHE = state.bereiche; if (state.rollen) ROLLEN = state.rollen; if (!state.poll) state.poll = {}; if (!state.absent) state.absent = []; if (!state.log) state.log = []; ensureOwner(); saveLocal(); }
   function rtRender() { if (busyTyping()) { setTimeout(rtRender, 2000); return; } applyLayout(); updateAll(); }
+  function rtSaveBase() { try { localStorage.setItem("rb-base", JSON.stringify(RTS.base)); } catch (e) { /* ohne Speicher */ } }
+  function rtLoadBase() { try { var b = localStorage.getItem("rb-base"); return b ? JSON.parse(b) : null; } catch (e) { return null; } }
   function rtMerge(remote) {
     var empty = !Object.keys(remote).length;
     RT_ID_KEYS.forEach(function (k) { if (!remote[k]) remote[k] = []; });
     if (!RTS.inited) {
       RTS.inited = true;
       if (empty) { RTS.base = {}; rtPush(); return; }
-      Object.keys(remote).forEach(function (k) { state[k] = remote[k]; }); rtApplyLocal(); RTS.base = JSON.parse(JSON.stringify(remote)); rtRender(); return;
+      var sb = rtLoadBase();
+      if (sb) { /* Änderungen, die offline entstanden sind, bleiben erhalten und werden nachgemeldet */
+        var lops = []; rbDiff(sb, sharedOf(), [], 0, lops);
+        var mg = JSON.parse(JSON.stringify(remote)); if (lops.length) rbApply(mg, lops);
+        Object.keys(mg).forEach(function (k) { state[k] = mg[k]; }); rtApplyLocal(); RTS.base = JSON.parse(JSON.stringify(remote)); rtSaveBase(); rtRender();
+        if (lops.length) { toast(lops.length + " Änderung(en) von offline werden nachgemeldet."); rtPush(); }
+        return;
+      }
+      Object.keys(remote).forEach(function (k) { state[k] = remote[k]; }); rtApplyLocal(); RTS.base = JSON.parse(JSON.stringify(remote)); rtSaveBase(); rtRender(); return;
     }
     var ops = []; rbDiff(RTS.base, remote, [], 0, ops); if (!ops.length) return;
-    var loc = sharedOf(); rbApply(loc, ops); Object.keys(loc).forEach(function (k) { state[k] = loc[k]; });
-    rtApplyLocal(); RTS.base = JSON.parse(JSON.stringify(remote)); rtRender();
+    var nb = snapOrders(), loc = sharedOf(); rbApply(loc, ops); Object.keys(loc).forEach(function (k) { state[k] = loc[k]; });
+    rtApplyLocal(); RTS.base = JSON.parse(JSON.stringify(remote)); rtSaveBase(); notifyDiff(nb); rtRender();
   }
-  function rtFail() { syncUI("Online-Datenbank nicht erreichbar. Änderungen werden nachgeholt."); }
+  function rtFail() { RTS.failed = true; syncUI("Online-Datenbank nicht erreichbar. Änderungen werden nachgeholt."); connUI(); }
   function rtPush() {
     if (!RTS.on || !RTS.inited) return;
     if (RTS.busy) { clearTimeout(RTS.timer); RTS.timer = setTimeout(rtPush, 600); return; }
@@ -2504,23 +2654,24 @@ body.dragmode { user-select: none; cursor: grabbing; }
     if (!Object.keys(upd).length) { RTS.base = cur; return; }
     upd.rev = Date.now() + Math.random().toString(36).slice(2, 6);
     RTS.busy = true; RTS.gen++;
-    rtReq("PATCH", "/rb.json", upd).then(function () { RTS.base = cur; RTS.busy = false; RTS.gen++; syncUI("Mit der Online-Datenbank verbunden"); })
+    rtReq("PATCH", "/rb.json", upd).then(function () { RTS.base = cur; rtSaveBase(); RTS.busy = false; RTS.failed = false; RTS.lastOk = realHM(); RTS.gen++; syncUI("Mit der Online-Datenbank verbunden"); connUI(); })
       .catch(function () { RTS.busy = false; rtFail(); clearTimeout(RTS.timer); RTS.timer = setTimeout(rtPush, 4000); });
   }
   function rtPull() { var g = RTS.gen; return rtReq("GET", "/rb.json").then(function (raw) { if (g !== RTS.gen || RTS.busy) return; RTS.rev = (raw && raw.rev) || null; rtMerge(rtParse(raw)); }); }
   function rtPoll() {
     if (!RTS.on || RTS.busy || busyTyping()) return;
     var cur = sharedOf(), ops = []; rbDiff(RTS.base, cur, [], 0, ops); if (ops.length) { rtPush(); return; }
-    rtReq("GET", "/rb/rev.json").then(function (rev) { syncUI("Mit der Online-Datenbank verbunden"); if (rev === RTS.rev) return; return rtPull(); }).catch(rtFail);
+    rtReq("GET", "/rb/rev.json").then(function (rev) { RTS.failed = false; RTS.lastOk = realHM(); syncUI("Mit der Online-Datenbank verbunden"); connUI(); if (rev === RTS.rev) return; return rtPull(); }).catch(rtFail);
   }
   function rtInit() {
+    if (RTS.on) return;
     var u = ""; try { var m = /[?&]db=([^&]+)/.exec(location.search); if (m) localStorage.setItem("rb-dburl", decodeURIComponent(m[1])); u = localStorage.getItem("rb-dburl") || ""; } catch (e) { /* ohne Speicher */ }
     var pr = u ? Promise.resolve({ dbUrl: u }) : fetch("config.json", { cache: "no-store" }).then(function (r) { return r.ok ? r.json() : {}; });
     pr.then(function (c) {
       var url = ((c && c.dbUrl) || "").replace(/\/+$/, ""); if (!/^https?:\/\//.test(url)) return;
       RTS.url = url;
-      return rtReq("GET", "/rb.json").then(function (raw) { RTS.on = true; RTS.rev = (raw && raw.rev) || null; rtMerge(rtParse(raw)); syncUI("Mit der Online-Datenbank verbunden"); setInterval(rtPoll, 2500); });
-    }).catch(function () {});
+      return rtReq("GET", "/rb.json").then(function (raw) { RTS.on = true; RTS.failed = false; RTS.lastOk = realHM(); RTS.rev = (raw && raw.rev) || null; rtMerge(rtParse(raw)); syncUI("Mit der Online-Datenbank verbunden"); connUI(); setInterval(rtPoll, 2500); });
+    }).catch(function () { if (RTS.on) return; if (RTS.url || navigator.onLine === false) { RTS.want = true; RTS.failed = true; connUI(); clearTimeout(RTS.retry); RTS.retry = setTimeout(rtInit, 5000); } });
   }
 
   /* ---- Gemeinsame Daten über den Raspberry-Pi-Server (nur wenn die App von dort geladen wird) ---- */
@@ -2528,10 +2679,11 @@ body.dragmode { user-select: none; cursor: grabbing; }
   function sharedOf() { var o = {}; SHARED_KEYS.forEach(function (k) { if (state[k] !== undefined) o[k] = JSON.parse(JSON.stringify(state[k])); }); return o; }
   function syncUI(txt) { var el = document.getElementById("syncInfo"); if (!el) return; el.hidden = !((SYNC && SYNC.on) || (RTS && RTS.on)); el.textContent = txt || ""; }
   function adoptShared(remote, rev) {
+    var nb3 = snapOrders();
     SHARED_KEYS.forEach(function (k) { if (remote[k] !== undefined) state[k] = JSON.parse(JSON.stringify(remote[k])); });
     state.staff = normStaff(state.staff); GROUPS = state.staff; BEREICHE = state.bereiche; if (state.rollen) ROLLEN = state.rollen;
     if (!state.poll) state.poll = {}; if (!state.absent) state.absent = []; if (!state.log) state.log = [];
-    ensureOwner(); saveLocal(); SYNC.rev = rev; SYNC.base = JSON.parse(JSON.stringify(remote));
+    ensureOwner(); saveLocal(); SYNC.rev = rev; SYNC.base = JSON.parse(JSON.stringify(remote)); notifyDiff(nb3);
   }
   function syncSoon() { if (RTS && RTS.on && RTS.inited) { clearTimeout(RTS.timer); RTS.timer = setTimeout(rtPush, 300); } if (DBS && DBS.on && DBS.inited) { clearTimeout(DBS.timer); DBS.timer = setTimeout(dbPush, 300); } if (!SYNC || !SYNC.on) return; clearTimeout(SYNC.timer); SYNC.timer = setTimeout(syncNow, 250); }
   function syncReq(url, body) {
@@ -2614,6 +2766,74 @@ body.dragmode { user-select: none; cursor: grabbing; }
     sv.addEventListener("dblclick", function (e) { var p = mapPt(e); mapZoom(MV.z > 1 ? 1 : 2.5, p.x, p.y); });
     document.addEventListener("click", function (e) { if (mblock) { e.stopPropagation(); e.preventDefault(); } }, true);
   })();
+
+  /* ---- Mitteilungen ---- */
+  var NOTE = { list: [], armed: false, ctx: null };
+  try { NOTE.list = JSON.parse(localStorage.getItem("rb-notes") || "[]") || []; } catch (e) { NOTE.list = []; }
+  setTimeout(function () { NOTE.armed = true; }, 6000);
+  function realHM() { var d = new Date(); return ("0" + d.getHours()).slice(-2) + ":" + ("0" + d.getMinutes()).slice(-2); }
+  function snapOrders() { var m = {}; (state.orders || []).forEach(function (o) { m[o.id] = { s: o.status, a: o.assignee || "", t: o.time || "" }; }); return m; }
+  function noteSave() { try { localStorage.setItem("rb-notes", JSON.stringify(NOTE.list.slice(0, 30))); } catch (e) { /* ohne Speicher */ } }
+  function beep() { try { var AC = window.AudioContext || window.webkitAudioContext; if (!AC) return; NOTE.ctx = NOTE.ctx || new AC(); var c = NOTE.ctx, os = c.createOscillator(), g = c.createGain(); os.frequency.value = 880; g.gain.value = 0.06; os.connect(g); g.connect(c.destination); os.start(); os.stop(c.currentTime + 0.2); } catch (e) { /* kein Ton */ } }
+  document.addEventListener("pointerdown", function () { try { var AC = window.AudioContext || window.webkitAudioContext; if (AC) { NOTE.ctx = NOTE.ctx || new AC(); if (NOTE.ctx.resume) NOTE.ctx.resume(); } } catch (e) { /* */ } }, { once: true });
+  function pushNote(txt) {
+    NOTE.list.unshift({ ts: Date.now(), txt: txt, read: false }); NOTE.list = NOTE.list.slice(0, 30); noteSave(); renderBell();
+    toast(txt); beep(); try { if (navigator.vibrate) navigator.vibrate(120); } catch (e) { /* */ }
+    try { if (window.Notification && Notification.permission === "granted" && document.hidden) new Notification("Rangierboard Olten", { body: txt }); } catch (e) { /* */ }
+  }
+  function notifyDiff(b) {
+    if (!NOTE.armed || !b) return;
+    var me = state.auth || state.me; if (!me) return;
+    var v = myViews0(), isC = v.indexOf("coord") >= 0, isW = v.indexOf("order") >= 0, myB = bereichOf(me);
+    (state.orders || []).forEach(function (o) {
+      var p = b[o.id], tr = trainById(o.trainId), nm = tr ? tr.name : o.id;
+      if (!p) { if (o.assignee === me && o.status === "zugewiesen") { pushNote("Dir zugewiesen: " + o.id + ", " + nm + " nach " + tshort(o.to)); return; } if (o.status === "offen" && isC) pushNote("Neuer Auftrag " + o.id + ": " + nm + " nach " + tshort(o.to) + (o.bereich ? " (" + o.bereich + ")" : "")); return; }
+      if (o.assignee === me && p.a !== me && o.status === "zugewiesen") pushNote("Dir zugewiesen: " + o.id + ", " + nm + " nach " + tshort(o.to) + (o.time ? " um " + o.time + " Uhr" : ""));
+      if (p.t !== (o.time || "") && o.status !== "erledigt" && o.status !== "storniert" && ((isW && myB && myB === o.bereich) || o.assignee === me)) pushNote("Zeit geändert: " + o.id + " (" + nm + ") von " + (p.t || "keine Zeit") + " auf " + (o.time || "keine Zeit") + (o.time ? " Uhr" : ""));
+      if (p.s !== "erledigt" && o.status === "erledigt" && isW && myB && myB === o.bereich) pushNote("Erledigt: " + o.id + ", " + nm + " steht auf " + tshort(o.actual || o.to));
+      if (p.s !== "storniert" && o.status === "storniert" && isC) pushNote(o.id + " wurde zurückgezogen (" + nm + ")");
+    });
+  }
+  function renderBell() {
+    var n = NOTE.list.filter(function (x) { return !x.read; }).length, bd = $("#bellN"); if (bd) { bd.textContent = n > 9 ? "9+" : String(n); bd.hidden = !n; }
+    var pn = $("#notePanel"); if (!pn || pn.hidden) return;
+    var perm = window.Notification ? Notification.permission : "denied";
+    pn.innerHTML = '<div class="row"><b style="flex:1">Mitteilungen</b>' + (NOTE.list.length ? '<button class="btn small" type="button" data-act="noteclr">Leeren</button>' : "") + "</div>" +
+      (NOTE.list.length ? NOTE.list.map(function (x) { var d = new Date(x.ts); return '<div class="ni' + (x.read ? "" : " new") + '"><small>' + ("0" + d.getHours()).slice(-2) + ":" + ("0" + d.getMinutes()).slice(-2) + "</small>" + esc(x.txt) + "</div>"; }).join("") : '<div class="meta">Noch keine Mitteilungen. Hier erscheinen neue Aufträge, Zuweisungen und Zeitänderungen.</div>') +
+      (window.Notification && perm === "default" ? '<button class="btn small" type="button" data-act="noteperm">Mitteilungen auf diesem Gerät erlauben</button>' : "") +
+      '<p class="meta">Mitteilungen kommen, solange die App offen oder im Hintergrund ist.</p>';
+  }
+  function setBell(on) {
+    var pn = $("#notePanel"); if (!pn) return; pn.hidden = !on;
+    if (on) { renderBell(); NOTE.list.forEach(function (x) { x.read = true; }); noteSave(); var bd = $("#bellN"); if (bd) bd.hidden = true; setTimeout(function () { var q = $("#notePanel"); if (q && !q.hidden) q.querySelectorAll(".ni.new").forEach(function (e) { e.classList.add("new"); }); }, 0); }
+  }
+  document.addEventListener("click", function (e) {
+    var b = e.target.closest && e.target.closest("[data-act]"), a = b && b.getAttribute("data-act"), pn = $("#notePanel");
+    if (a === "bell") { setBell(pn && pn.hidden); return; }
+    if (a === "noteclr") { NOTE.list = []; noteSave(); renderBell(); return; }
+    if (a === "noteperm") { try { Notification.requestPermission().then(function () { renderBell(); }); } catch (x) { /* */ } return; }
+    if (pn && !pn.hidden && !(e.target.closest && e.target.closest("#notePanel, #bellBtn"))) pn.hidden = true;
+  });
+  /* ---- Verbindungsanzeige ---- */
+  function connInfo() {
+    var on = false, failed = false, pend = 0, last = "", base = null, cur = null;
+    try {
+      if (RTS.on) { on = true; failed = !!RTS.failed; base = RTS.base; cur = sharedOf(); last = RTS.lastOk || ""; }
+      else if (RTS.want) { on = true; failed = true; base = rtLoadBase(); cur = sharedOf(); }
+      else if (SYNC.on) { on = true; failed = SYNC.fails > 0; base = SYNC.base; cur = sharedOf(); }
+      else if (DBS.on) { on = true; failed = !!DBS.warned; base = DBS.base; cur = dbLocal(); }
+      if (base && cur) { var o = []; rbDiff(base, cur, [], 0, o); pend = o.length; }
+    } catch (e) { /* Anzeige bleibt */ }
+    if (!on) return { c: "", t: navigator.onLine === false ? "Offline" : "Nur lokal", ti: "Keine gemeinsame Datenbank verbunden. Die Daten bleiben auf diesem Gerät." };
+    if (failed || navigator.onLine === false) return { c: pend ? "off" : "warn", t: "Offline" + (pend ? " · " + pend + " warten" : ""), ti: "Keine Verbindung. Änderungen werden gespeichert und nachgemeldet, sobald wieder eine Verbindung besteht." };
+    if (pend) return { c: "warn", t: "Sendet … (" + pend + ")", ti: "Änderungen werden übertragen." };
+    return { c: "ok", t: "Online", ti: "Mit der gemeinsamen Datenbank verbunden" + (last ? ", zuletzt " + last + " Uhr" : "") + "." };
+  }
+  function connUI() { var el = $("#connPill"); if (!el) return; var i = connInfo(); el.className = "conn" + (i.c ? " " + i.c : ""); el.title = i.ti; var sp = el.querySelector("span"); if (sp && sp.textContent !== i.t) sp.textContent = i.t; }
+  setInterval(connUI, 1500);
+  window.addEventListener("offline", connUI);
+  window.addEventListener("online", function () { connUI(); try { if (RTS.on) rtPoll(); else if (RTS.want) { clearTimeout(RTS.retry); rtInit(); } if (SYNC.on) syncPoll(); } catch (e) { /* */ } });
+  renderBell(); connUI();
 
   buildMap();
   applyLayout();
