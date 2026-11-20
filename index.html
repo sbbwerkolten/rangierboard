@@ -568,7 +568,8 @@ body.dragmode { user-select: none; cursor: grabbing; }
   state.staff = normStaff(state.staff);
   if (!state.bereiche || !state.bereiche.length) state.bereiche = DEFAULT_BEREICHE.slice();
   if (!state.quals) state.quals = {};
-  if (typeof state.sim !== "number") state.sim = 0;
+  state.sim = 0; /* Demo-Uhr startet nach jedem Neuladen wieder in Echtzeit */
+  try { purgeDemo(); saveLocal(); } catch (e) { /* */ }
   if (!state.poll) state.poll = {};
   if (!state.roles) state.roles = {};
   (function () { var zi = {}; state.trains = state.trains.filter(function (t) { if (t.short === "Zagro" || t.short === "Zagro XL") { zi[t.id] = 1; return false; } return true; }); if (Object.keys(zi).length) state.orders = state.orders.filter(function (o) { return !zi[o.trainId] && !(o.cars || []).some(function (c) { return zi[c]; }); }); })();
@@ -647,9 +648,17 @@ body.dragmode { user-select: none; cursor: grabbing; }
       } else if (op.d) delete par[last]; else par[last] = op.v;
     });
   }
-  var SHARED_KEYS = ["trains", "orders", "seq", "nextNo", "sim", "absent", "log", "poll", "shifts", "staff", "bereiche", "quals", "roles", "rollen", "rolePerms", "bereichOpt", "logo", "layouts", "layLast", "subCfg"];
+  var SHARED_KEYS = ["trains", "orders", "seq", "nextNo", "demoEnd", "absent", "log", "poll", "shifts", "staff", "bereiche", "quals", "roles", "rollen", "rolePerms", "bereichOpt", "logo", "layouts", "layLast", "subCfg"];
   /*OPS-END*/
-  function saveLocal() { try { localStorage.setItem(KEY, JSON.stringify(state)); } catch (e) { /* ohne Speicher weiterarbeiten */ } }
+  function purgeDemo() {
+    if (!state.demoEnd || !state.trains) return false;
+    var ids = {}; state.trains.forEach(function (t) { if (t.demo) ids[t.id] = 1; });
+    if (!Object.keys(ids).length) return false;
+    state.trains = state.trains.filter(function (t) { return !ids[t.id]; });
+    if (state.orders) state.orders = state.orders.filter(function (o) { return !Object.keys(ids).some(function (i) { return ordHas(o, i); }); });
+    return true;
+  }
+  function saveLocal() { var pd = false; try { pd = purgeDemo(); } catch (e) { /* ordHas noch nicht bereit */ } if (pd && typeof syncSoon === "function") setTimeout(syncSoon, 0); try { localStorage.setItem(KEY, JSON.stringify(state)); } catch (e) { /* ohne Speicher weiterarbeiten */ } }
   function save() { saveLocal(); if (typeof syncSoon === "function") syncSoon(); }
 
   var ui = { adm: "staff", day: todayStr(), crewMe: "", dsp: { type: "523", num: "", bereich: "", date: "", time: "" }, openStaff: {}, edit: false, dragTile: null, pollSel: {}, consSel: [], staff: { name: "", group: "manoever" }, view: "order", selTrain: null, selTrack: null, confirm: null, resetArm: false, man: { train: "T3", to: "821", side: "S" }, inb: { mode: "in", date: "", veh: "new", type: "523", num: "", to: "2", side: "S", prio: "Normal", time: "", note: "", who: "" } };
@@ -1490,7 +1499,7 @@ body.dragmode { user-select: none; cursor: grabbing; }
       if (t.track === "RB") { t.arrive = ("0" + (7 + (rbN % 8))).slice(-2) + ":" + (rbN % 2 ? "30" : "00"); rbN++; }
       state.trains.push(t); made++;
     });
-    state.demo = true; logEvent("Demomodus: " + made + " Fahrzeuge eingetragen");
+    state.demo = true; state.demoEnd = 0; logEvent("Demomodus: " + made + " Fahrzeuge eingetragen");
     save(); updateAll(); toast(made ? "Demomodus: " + made + " Fahrzeuge sind eingetragen." : "Die Demo-Fahrzeuge sind schon vorhanden.");
   }
   function clearDemo() {
@@ -1498,7 +1507,7 @@ body.dragmode { user-select: none; cursor: grabbing; }
     var n = Object.keys(ids).length;
     state.trains = state.trains.filter(function (t) { return !ids[t.id]; });
     state.orders = state.orders.filter(function (o) { return !Object.keys(ids).some(function (i) { return ordHas(o, i); }); });
-    if (ui.selTrain && ids[ui.selTrain]) ui.selTrain = null; ui.confirm = null; state.demo = false;
+    if (ui.selTrain && ids[ui.selTrain]) ui.selTrain = null; ui.confirm = null; state.demo = false; state.demoEnd = Date.now();
     logEvent("Demomodus beendet: " + n + " Demo-Fahrzeuge entfernt"); save(); updateAll(); toast(n + " Demo-Fahrzeuge entfernt.");
   }
   function demoCard() {
@@ -1668,7 +1677,9 @@ body.dragmode { user-select: none; cursor: grabbing; }
   }
   function weekKey() { var d = new Date(); d.setHours(12, 0, 0, 0); var wd = (d.getDay() + 6) % 7; d.setDate(d.getDate() - wd); return d.getFullYear() + "-" + ("0" + (d.getMonth() + 1)).slice(-2) + "-" + ("0" + d.getDate()).slice(-2); }
   function authValid() { return !!state.auth && allNames().indexOf(state.auth) >= 0 && state.authWeek === weekKey(); }
+  var APPVER = "v38";
   var CHANGELOG = [
+    { d: "20.11.2026", t: "Demo-Fahrzeuge und Demo-Uhr starten nicht mehr von selbst: Die Uhr läuft nach dem Neuladen wieder in Echtzeit, beendete Demo-Fahrzeuge kommen nicht zurück." },
     { d: "20.11.2026", t: "Neue Startseite mit Gleisplan. Anmeldung bleibt bis Ende der Arbeitswoche bestehen. Layout-Export und -Import nur noch für den Admin." },
     { d: "19.11.2026", t: "Gleisplan lässt sich verschieben und zoomen. Neue Kacheln im Layout schliessen direkt an die unterste an. Online-Datenbank für mehrere Geräte." }
   ];
@@ -1684,7 +1695,7 @@ body.dragmode { user-select: none; cursor: grabbing; }
         '<p class="meta">Angemeldet als <b>' + esc(state.auth) + '</b></p><button class="btn pri" type="button" data-act="cvgo">Weiter als ' + esc(state.auth) + '</button><button class="btn" type="button" data-act="cvother">Mit anderem Konto anmelden</button>' :
         '<form id="cvForm" autocomplete="on"><label>Benutzername<input type="text" id="cv-u" autocomplete="username" autocapitalize="off" autocorrect="off" spellcheck="false"></label><label>Passwort<input type="password" id="cv-p" autocomplete="current-password"></label><button class="btn pri" type="submit">Anmelden</button><p class="meta">Benutzername und Passwort bekommst du vom Admin.</p></form>';
     }
-    var lg2 = $("#cvLog"); if (lg2) lg2.innerHTML = CHANGELOG.slice(0, 2).map(function (c) { return "<b>" + esc(c.d) + "</b><p>" + esc(c.t) + "</p>"; }).join("");
+    var lg2 = $("#cvLog"); if (lg2) lg2.innerHTML = CHANGELOG.slice(0, 3).map(function (c) { return "<b>" + esc(c.d) + "</b><p>" + esc(c.t) + "</p>"; }).join("") + '<p class="meta">Version ' + APPVER + "</p>";
     cvRefresh();
   }
   function coverOn() {
@@ -2397,7 +2408,7 @@ body.dragmode { user-select: none; cursor: grabbing; }
 
   /* ---- Gemeinsame Daten in der Ablage der Seite (Artifact): Fahrzeuge, Aufträge, Abwesenheiten usw. ---- */
   var DBS = { on: false, inited: false, base: {}, rm: { trains: {}, orders: {}, kv: null }, got: {}, cols: {}, kvRef: null, timer: null, warned: false };
-  var KV_KEYS = ["absent", "log", "poll", "seq", "nextNo", "sim"], DB_KEYS = ["trains", "orders"].concat(KV_KEYS);
+  var KV_KEYS = ["absent", "log", "poll", "seq", "nextNo", "demoEnd"], DB_KEYS = ["trains", "orders"].concat(KV_KEYS);
   function dbLocal() { var o = {}; DB_KEYS.forEach(function (k) { if (state[k] !== undefined) o[k] = JSON.parse(JSON.stringify(state[k])); }); return o; }
   function dbRemote() {
     var o = { trains: Object.keys(DBS.rm.trains).map(function (id) { return DBS.rm.trains[id]; }), orders: Object.keys(DBS.rm.orders).map(function (id) { return DBS.rm.orders[id]; }) };
