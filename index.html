@@ -892,11 +892,29 @@ body.npopen #toast { z-index: 200; }
     var free = cap - lay.used - (lay.used ? GAP : 0);
     return { ok: wpx(train) <= free, freeM: Math.max(0, Math.round(free / SC)), needM: Math.round(wpx(train) / SC) };
   }
+  function blockersFor(t) {
+    if (!t || !isHall(t.track) || t.track === "861") return [];
+    return trainsOn(t.track, t.id).filter(function (x) {
+      if (t.side === "N") return x.side !== "N" || x.seq > t.seq;
+      return x.side !== "N" && x.seq < t.seq;
+    });
+  }
+  function blockHint(o) {
+    var t = trainById(o.trainId), bl = o.type === "in" ? [] : blockersFor(t);
+    if (!bl.length) return "";
+    return tshort(t.track) + ": " + bl.map(function (x) { return x.name + " (" + sideName(x.side) + (x.bereich ? ", " + x.bereich : "") + ")"; }).join(", ") + " steht im Weg. Erst umstellen.";
+  }
+  function freeSpot(t) {
+    var c = TRKLIST.filter(function (k) { return (k.zone === "abstell" || k.zone === "abstell2") && k.id !== "KK" && k.id !== t.track; });
+    for (var i = 0; i < c.length; i++) { if (fit(c[i].id, t).ok) return c[i].id; }
+    return "";
+  }
   function fitText(o) {
     if (isFuture(o)) return "";
     var t = trainById(o.trainId), f = fit(o.to, t), msgs = [];
     if (!f.ok) msgs.push(tshort(o.to) + ": nur noch ca. " + f.freeM + " m frei, das Fahrzeug braucht ca. " + f.needM + " m.");
     (rakActive(o) ? rakBlocks(o) : [o.to]).forEach(function (id) { var m = blockText(id, o.id); if (m) msgs.push(m); });
+    var bh = blockHint(o); if (bh) msgs.push(bh);
     if (rakActive(o) && o.after && o.after !== "1") { var fa = fit(o.after, t); if (!fa.ok) msgs.push("Danach auf " + tshort(o.after) + ": nur noch ca. " + fa.freeM + " m frei, das Fahrzeug braucht ca. " + fa.needM + " m."); }
     return msgs.join(" ");
   }
@@ -1521,21 +1539,22 @@ body.npopen #toast { z-index: 200; }
   }
   function logoCard() { return '<div class="card"><p class="meta">Das Logo erscheint oben links unter dem Schriftzug. Lade hier die Logo-Datei hoch (zum Beispiel das offizielle Logo aus dem Intranet). Es wird verkleinert und für alle gespeichert.</p>' + (state.logo ? '<img alt="Logo" src="' + state.logo + '" style="height:40px;max-width:240px;object-fit:contain">' : "") + '<div class="row"><input type="file" id="logoFile" accept="image/*" aria-label="Logo-Datei"><button class="btn small" type="button" data-act="logodel"' + (state.logo ? "" : " disabled") + ">Logo entfernen</button></div></div>"; }
   function dataCard() { return '<div class="card"><p class="meta">Löscht alle Fahrzeuge, Aufträge und Abwesenheiten auf diesem Gerät. Mitarbeiter, Bereiche, Rollen und Layouts bleiben erhalten.</p><button class="btn danger" type="button" data-act="reset" id="resetBtn">Daten löschen</button></div>'; }
-  var DEMOSET = [["ewiv", ["118", "119", "120", "121", "122", "123"]], ["ec", ["10-90 233", "10-90 241"]], ["523", ["523 090", "523 104", "523 111", "523 120"]], ["521", ["521 019", "521 027"]], ["522", ["522 224", "522 230"]], ["524", ["524 101"]], ["511a", ["511 107"]], ["511b", ["511 031"]], ["514", ["514 003"]]];
   function startDemo() {
-    var made = 0, rbN = 0, list = [], bs = (pollB().length ? pollB() : BEREICHE).slice(), k630 = BEREICHE.filter(function (b) { return /630/.test(b); })[0], nCar = 0, nTz = 0;
-    if (k630 && bs.indexOf(k630) < 0) bs.push(k630);
-    var bsCar = bs.filter(function (b) { return b !== k630; }); if (!bsCar.length) bsCar = bs;
-    DEMOSET.forEach(function (g) { var df = TYPEDEFS.filter(function (x) { return x.k === g[0]; })[0]; g[1].forEach(function (n) { list.push([df, n]); }); });
-    var cand = TRKLIST.filter(function (t) { return t.zone === "abstell" || t.zone === "abstell2" || t.zone === "halle"; });
-    list.forEach(function (it, i) {
-      var df = it[0], nm = df.prefix + " " + it[1];
+    var made = 0, bs = (pollB().length ? pollB() : BEREICHE).slice(), k630 = BEREICHE.filter(function (b) { return /630/.test(b); })[0], nCar = 0;
+    var bsCar = bs.filter(function (b) { return b !== k630; }); if (!bsCar.length) bsCar = BEREICHE.filter(function (b) { return b !== k630; }); if (!bsCar.length) bsCar = bs;
+    var bTz = k630 || bs[0] || "";
+    var plan = [
+      ["511b", "511 003", "3", "N", "tz"], ["522", "522 112", "2", "N", "tz"],
+      ["523", "523 090", "RB", "07:00", "tz"], ["521", "521 019", "RB", "08:30", "tz"], ["524", "524 101", "RB", "10:00", "tz"],
+      ["ewiv", "118", "2", "S", "car"], ["ewiv", "119", "862", "", "car"], ["ewiv", "120", "864", "", "car"], ["ewiv", "121", "866", "", "car"],
+      ["ec", "10-90 233", "868", "", "car"], ["ec", "10-90 241", "863", "", "car"], ["ewiv", "122", "870", "", "car"], ["ewiv", "123", "RB", "09:00", "car"]
+    ];
+    plan.forEach(function (it) {
+      var df = TYPEDEFS.filter(function (x) { return x.k === it[0]; })[0], nm = df.prefix + " " + it[1];
       if (state.trains.some(function (x) { return x.name.toLowerCase() === nm.toLowerCase(); })) return;
       var nid = "T" + (state.trains.reduce(function (m, x) { return Math.max(m, parseInt(x.id.slice(1), 10) || 0); }, 0) + 1);
-      var t = { id: nid, name: nm, short: df.short, type: df.type, len: df.len, track: "RB", lenNote: df.note, side: "S", seq: ++state.seq, since: nowT(), demo: true, bereich: df.type === "car" ? bsCar[nCar++ % bsCar.length] : bs[nTz++ % bs.length] };
-      if (i % 3 !== 2) { for (var k = 0; k < cand.length; k++) { var tk = cand[(k + i * 2) % cand.length]; t.track = ""; if (fit(tk.id, t).ok) { t.track = tk.id; break; } } if (!t.track) t.track = "RB"; }
-      if (df.k === "ec" && isHall(t.track)) { ["863", "865", "867", "869", "864", "866"].some(function (c) { if (fit(c, t).ok) { t.track = c; return true; } return false; }); }
-      if (t.track === "RB") { t.arrive = ("0" + (7 + (rbN % 8))).slice(-2) + ":" + (rbN % 2 ? "30" : "00"); rbN++; }
+      var t = { id: nid, name: nm, short: df.short, type: df.type, len: df.len, track: it[2], lenNote: df.note, side: "S", seq: ++state.seq, since: nowT(), demo: true, bereich: it[4] === "tz" ? bTz : bsCar[nCar++ % bsCar.length] };
+      if (isHall(it[2])) t.side = it[3] || "S"; else if (it[2] === "RB") t.arrive = it[3];
       state.trains.push(t); made++;
     });
     state.demo = true; state.demoEnd = 0; logEvent("Demomodus: " + made + " Fahrzeuge eingetragen");
@@ -1557,54 +1576,60 @@ body.npopen #toast { z-index: 200; }
     if (o.type === "in") { delete t.outAt; delete t.outNow; delete t.fertig; }
     o.actual = o.to; o.status = "erledigt"; o.tDone = nowT(); ui.selTrain = t.id; logEvent(o.assignee + " meldet " + t.name + " auf " + tshort(o.to)); save(); updateAll();
   }
-  function dsFreeTrack(t, zones) { var c = TRKLIST.filter(function (k) { return zones.indexOf(k.zone) >= 0 && k.id !== t.track; }); for (var i = 0; i < c.length; i++) { if (fit(c[i].id, t).ok) return c[i].id; } return ""; }
+  function dsFreeTrack(t, zones) { var c = TRKLIST.filter(function (k) { return zones.indexOf(k.zone) >= 0 && k.id !== t.track && k.id !== "KK"; }); for (var i = 0; i < c.length; i++) { if (fit(c[i].id, t).ok) return c[i].id; } return ""; }
+  function dsBlock(o) { var t = trainById(o.trainId), f = blockersFor(t).filter(function (x) { return (x.bereich || "") !== (o.bereich || ""); }); if (f.length) o.blockedBy = f.map(function (x) { return x.id; }); return f; }
   function demoScript() {
     if (DS.run || !admOK()) return;
     if (state.trains.some(function (t) { return t.demo; })) clearDemo();
     startDemo();
-    shiftClock(function () { var t7 = nowD(); t7.setHours(7, 30, 0, 0); state.sim += t7.getTime() - nowD().getTime(); });
-    var demo = state.trains.filter(function (t) { return t.demo; }), rb = demo.filter(function (t) { return t.track === "RB"; }).slice(0, 2), wk = demo.filter(function (t) { return t.track !== "RB"; }), steps = [];
+    shiftClock(function () { var t6 = nowD(); t6.setHours(6, 0, 0, 0); state.sim += t6.getTime() - nowD().getTime(); });
+    var demo = state.trains.filter(function (t) { return t.demo; }), steps = [];
+    function byName(n) { return demo.filter(function (t) { return t.name.indexOf(n) >= 0; })[0]; }
     function add(ms, fn) { steps.push([ms, fn]); }
-    rb.forEach(function (r) {
-      var o;
-      add(2600, function () { var to = dsFreeTrack(r, ["abstell", "abstell2"]); if (!to) return; toast("Koordination legt die Einfahrt für " + r.name + " an."); o = dsOrder(r, "in", to, { time: r.arrive || "08:00" }); });
-      add(4500, function () { if (o) { var w = dsAssign(o); toast(o.id + " wird " + (w || "einem Rangierer") + " zugewiesen."); } });
-      add(3200, function () { if (o) { dsGo(o); toast((o.assignee || "Ein Rangierer") + " fährt " + r.name + " ins Werk."); } });
-      add(3200, function () { if (o) { dsDone(o); toast(r.name + " steht auf " + tshort(o.to) + ". Der Gleisplan ist aktuell."); } });
-    });
-    var em = demo.filter(function (t) { return t.track === "RB" && t.type === "emu"; })[0];
+    function who(w) { return w || "einem Rangierer"; }
+    var em = byName("523 090"), e2 = byName("521 019"), e3 = byName("524 101"), tz511 = byName("511 003"), tz522 = byName("522 112"), car2 = byName("EW IV B 118");
     if (em) {
       var o8, o9;
-      add(2600, function () { if (!fit("821", em).ok) return; toast("Koordination stellt " + em.name + " aus dem RB auf Gl 821."); o8 = dsOrder(em, "in", "821", { time: em.arrive || "08:00" }); });
-      add(3500, function () { if (o8) { var wq = dsAssign(o8); toast("Einfahrt auf Gl 821 wird " + (wq || "einem Rangierer") + " zugewiesen."); } });
+      add(3000, function () { if (!fit("821", em).ok) return; toast("Koordination stellt " + em.name + " aus dem RB auf Gl 821."); o8 = dsOrder(em, "in", "821", { time: em.arrive || "07:00" }); });
+      add(4500, function () { if (o8) { var wq = dsAssign(o8); toast("Einfahrt auf Gl 821 wird " + who(wq) + " zugewiesen."); } });
       add(3200, function () { if (o8) dsGo(o8); });
       add(3200, function () { if (o8) { dsDone(o8); toast(em.name + " steht auf Gl 821. Alle im Bereich " + (em.bereich || "") + " bekommen eine Mitteilung."); } });
-      add(4500, function () { if (!o8) return; var to = dsFreeTrack(em, ["halle"]); if (!to) return; toast("Werkstatt bestellt die Verschiebung von " + em.name + "."); o9 = dsOrder(em, "move", to, { time: "11:00", bereich: em.bereich || "Koordination" }); });
-      add(4500, function () { if (o9) { var wr = dsAssign(o9); toast("Verschiebung wird " + (wr || "einem Rangierer") + " zugewiesen. Sie wartet auf «Bereit»."); } });
+      add(4500, function () { if (!o8) return; var to = dsFreeTrack(em, ["halle"]); if (!to) return; toast("Werkstatt bestellt die Verschiebung von " + em.name + "."); o9 = dsOrder(em, "move", to, { time: "07:30", bereich: em.bereich || "Koordination" }); });
+      add(4500, function () { if (o9) { var wr = dsAssign(o9); toast("Verschiebung wird " + who(wr) + " zugewiesen. Sie wartet auf «Bereit»."); } });
       add(4500, function () { if (o9) { em.bereit = true; em.bereitBy = "Werkstatt"; em.bereitAt = nowT(); logEvent(em.name + " ist bereit zum Verschieben"); save(); updateAll(); toast("Werkstatt meldet " + em.name + " bereit. Der Rangierer bekommt eine Mitteilung."); } });
       add(3200, function () { if (o9) dsGo(o9); });
       add(3200, function () { if (o9) { dsDone(o9); toast(em.name + " steht auf " + tshort(o9.to) + "."); } });
     }
-    wk.slice(0, 2).forEach(function (w, i) {
-      var o;
-      add(2600, function () { var to = dsFreeTrack(w, ["halle"]); if (!to) return; toast("Werkstatt " + (w.bereich || "") + " bestellt eine Verschiebung für " + w.name + "."); o = dsOrder(w, "move", to, { time: "09:00" }); });
-      if (i === 1) add(4500, function () { if (o) { var old = o.time; o.time = "10:30"; logEvent(o.id + ": Koordination ändert die Zeit von " + old + " auf " + o.time + " Uhr"); save(); updateAll(); toast("Koordination ändert die Zeit von " + o.id + " auf " + o.time + " Uhr."); } });
-      add(i === 1 ? 3200 : 4500, function () { if (o) { var w2 = dsAssign(o); toast(o.id + " wird " + (w2 || "einem Rangierer") + " zugewiesen."); } });
-      add(3200, function () { if (o) { dsGo(o); toast((o.assignee || "Ein Rangierer") + " startet die Verschiebung."); } });
-      add(3200, function () { if (o) { dsDone(o); toast(w.name + " steht auf " + tshort(o.to) + "."); } });
+    [e2, e3].forEach(function (r) {
+      if (!r) return; var oi;
+      add(3000, function () { var t2 = dsFreeTrack(r, ["abstell", "abstell2"]); if (!t2) return; toast("Koordination legt die Einfahrt für " + r.name + " an."); oi = dsOrder(r, "in", t2, { time: r.arrive || "08:00" }); });
+      add(4500, function () { if (oi) { var w = dsAssign(oi); toast(oi.id + " wird " + who(w) + " zugewiesen."); } });
+      add(3200, function () { if (oi) dsGo(oi); });
+      add(3200, function () { if (oi) { dsDone(oi); toast(r.name + " steht auf " + tshort(oi.to) + "."); } });
     });
-    var ou = wk[2];
-    if (ou) {
-      var oo;
-      add(2600, function () { toast("Werkstatt meldet " + ou.name + " fertig zur Ausfahrt."); oo = dsOrder(ou, "out", "RB", {}); });
-      add(4500, function () { if (oo) { var w3 = dsAssign(oo); toast(oo.id + " wird " + (w3 || "einem Rangierer") + " zugewiesen."); } });
-      add(3200, function () { if (oo) { dsGo(oo); toast((oo.assignee || "Ein Rangierer") + " fährt " + ou.name + " in den RB."); } });
-      add(3200, function () { if (oo) { dsDone(oo); toast(ou.name + " ist ausgefahren und aus der Liste entfernt."); } });
+    if (tz522 && car2) {
+      var ob, oc;
+      add(3500, function () { var to = dsFreeTrack(tz522, ["abstell", "abstell2"]); if (!to) return; toast("Werkstatt " + (tz522.bereich || "") + " will " + tz522.name + " von Gl 2 Nord verschieben."); ob = dsOrder(tz522, "move", to, { time: "09:00" }); var f = dsBlock(ob); if (f.length) { logEvent(f[0].name + " steht " + tz522.name + " im Weg"); save(); } });
+      add(4500, function () { if (ob && ob.blockedBy) toast(car2.name + " (Gl 2 Süd, Bereich " + (car2.bereich || "") + ") steht im Weg. Koordination und Bereich " + (car2.bereich || "") + " werden informiert."); });
+      add(4500, function () { var to = freeSpot(car2); if (!ob || !to) return; toast("Koordination bestellt das Umstellen von " + car2.name + "."); oc = dsOrder(car2, "move", to, { time: "08:30", bereich: "Koordination" }); });
+      add(4500, function () { if (oc) { var w = dsAssign(oc); toast(oc.id + " wird " + who(w) + " zugewiesen."); } });
+      add(3200, function () { if (oc) { dsGo(oc); toast("Der Weg auf Gl 2 wird frei."); } });
+      add(3200, function () { if (oc) { dsDone(oc); toast(car2.name + " steht auf " + tshort(oc.to) + ". " + tz522.name + " kann jetzt raus."); } });
+      add(3500, function () { if (ob) { var w = dsAssign(ob); toast(ob.id + " wird " + who(w) + " zugewiesen."); } });
+      add(3200, function () { if (ob) dsGo(ob); });
+      add(3200, function () { if (ob) { dsDone(ob); toast(tz522.name + " steht auf " + tshort(ob.to) + "."); } });
+    }
+    if (tz511) {
+      var od;
+      add(4000, function () { toast("Werkstatt meldet " + tz511.name + " fertig zur Ausfahrt."); od = dsOrder(tz511, "out", "RB", {}); });
+      add(4500, function () { if (od) { var w = dsAssign(od); toast(od.id + " wird " + who(w) + " zugewiesen."); } });
+      add(3200, function () { if (od) { dsGo(od); toast((od.assignee || "Ein Rangierer") + " fährt " + tz511.name + " in den RB."); } });
+      add(3200, function () { if (od) { dsDone(od); toast(tz511.name + " ist ausgefahren und aus der Liste entfernt."); } });
     }
     add(2400, function () { dsStop("Demo-Ablauf beendet. Unter Admin → Demomodus kannst du die Demo-Fahrzeuge wieder entfernen."); });
     DS.run = true; DS.n = 0; var acc = 1500;
     steps.forEach(function (st) { acc += st[0]; DS.timers.push(setTimeout(function () { if (!DS.run) return; try { st[1](); } catch (e) { if (window.console) console.warn("Demo-Schritt übersprungen", e); } }, acc)); });
-    toast("Demo-Ablauf gestartet: Fahrzeuge, Bestellungen, Zuweisungen und Fahrten laufen automatisch."); renderPanel();
+    toast("Demo-Ablauf gestartet: Uhr 06:00, Fahrzeuge, Bestellungen, Zuweisungen und Fahrten laufen automatisch."); renderPanel();
   }
   function clearDemo() {
     var ids = {}; state.trains.forEach(function (t) { if (t.demo) ids[t.id] = 1; });
@@ -1616,7 +1641,7 @@ body.npopen #toast { z-index: 200; }
   }
   function demoCard() {
     var n = state.trains.filter(function (t) { return t.demo; }).length;
-    return '<div class="card"><p class="meta">Trägt 20 Fahrzeuge ein (Triebzüge und Einzelwagen), die meisten im Werk, einige im RB mit Ankunftszeit. Triebzüge verteilen sich auf alle Bereiche, Einzelwagen auf alle ausser Kst 630. Mit «Demo-Fahrzeuge entfernen» verschwinden nur diese wieder.</p><div class="row"><button class="btn pri" type="button" data-act="demostart">Demomodus starten (20 Fahrzeuge)</button><button class="btn" type="button" data-act="democlear"' + (n ? "" : " disabled") + ">Demo-Fahrzeuge entfernen" + (n ? " (" + n + ")" : "") + '</button></div><p class="meta">Oder ein fertiger Ablauf: Er stellt die Demo-Uhr auf 07:30, trägt Fahrzeuge ein und führt Einfahrten, Verschiebungen, eine Zeitänderung und eine Ausfahrt Schritt für Schritt aus. Auf anderen Geräten erscheinen dabei die Mitteilungen.</p><div class="row">' + (DS.run ? '<button class="btn danger" type="button" data-act="demostop">Demo-Ablauf stoppen</button>' : '<button class="btn pri" type="button" data-act="demoscript">Demo-Ablauf mit Drehbuch starten</button>') + "</div></div>";
+    return '<div class="card"><p class="meta">Trägt 13 Fahrzeuge ein: 5 Triebzüge von Kst 630 (511 003 auf Gl 3 Nord, 522 112 auf Gl 2 Nord, drei im RB mit Ankunft heute) und 8 Einzelwagen, verteilt auf die anderen Bereiche. Ein Einzelwagen steht auf Gl 2 Süd. Mit «Demo-Fahrzeuge entfernen» verschwinden nur diese wieder.</p><div class="row"><button class="btn pri" type="button" data-act="demostart">Demomodus starten (13 Fahrzeuge)</button><button class="btn" type="button" data-act="democlear"' + (n ? "" : " disabled") + ">Demo-Fahrzeuge entfernen" + (n ? " (" + n + ")" : "") + '</button></div><p class="meta">Oder ein fertiger Ablauf: Er stellt die Demo-Uhr auf 07:30, trägt Fahrzeuge ein und führt Einfahrten, Verschiebungen, eine Zeitänderung und eine Ausfahrt Schritt für Schritt aus. Auf anderen Geräten erscheinen dabei die Mitteilungen.</p><div class="row">' + (DS.run ? '<button class="btn danger" type="button" data-act="demostop">Demo-Ablauf stoppen</button>' : '<button class="btn pri" type="button" data-act="demoscript">Demo-Ablauf mit Drehbuch starten</button>') + "</div></div>";
   }
   function bereichOptCard() {
     return '<div class="card"><p class="meta">Was ein Bereich kann: Nimmt er an der Rundfrage zum Ausgang teil? Ohne Rundfrage kann seine Werkstatt Fahrzeuge ohne vorherige Anmeldung fertig melden.</p>' + BEREICHE.map(function (b) {
@@ -1760,6 +1785,11 @@ body.npopen #toast { z-index: 200; }
     return h;
   }
   function startLabel(o) { return o.type === "in" ? "Einfahrt starten" : o.type === "out" ? "Ausfahrt starten" : "Verschiebung starten"; }
+  function blkRow(o) {
+    if (o.status !== "zugewiesen") return "";
+    if (o.blocked) return '<p class="warnp meta">Nicht möglich gemeldet: ' + esc(o.blocked.reason) + " (" + esc(o.blocked.by || "") + " um " + esc(o.blocked.at) + ')</p><div class="row"><button class="btn small" type="button" data-act="blkoff" data-id="' + o.id + '">Wieder möglich</button></div>';
+    return '<div class="row"><select id="bk-' + o.id + '" aria-label="Grund"><option>Gleis besetzt</option><option>Fahrzeug nicht bereit</option><option>Fahrzeug im Weg</option><option>Anderer Grund</option></select><button class="btn small" type="button" data-act="blk" data-id="' + o.id + '">Nicht möglich</button></div>';
+  }
   function viewCrew() {
     var cp = crewPerson();
     var mine = state.orders.filter(function (o) { return o.assignee === cp && (isActive(o) || o.status === "rak") && dayMatch(o, ui.day); }).sort(sortOrders);
@@ -1777,13 +1807,14 @@ body.npopen #toast { z-index: 200; }
       var act = "";
       if (isFuture(o)) act = '<p class="meta">Geplant für ' + esc(fmtDate(odate(o))) + ". Der Auftrag startet erst am Einsatztag.</p>";
       else if (t.track === "RB" && o.type !== "in" && o.type !== "out") act = '<p class="meta">' + esc(t.name) + " steht noch im RB. Der Auftrag kann erst nach der Einfahrt ins Werk gestartet werden.</p>";
+      else if (o.status === "zugewiesen" && o.type !== "in" && blockersFor(t).length) act = '<p class="warnp meta">' + esc(blockHint(o)) + "</p>";
       else if (needReady(o) && o.status === "zugewiesen") act = '<p class="warnp meta">Wartet auf «Bereit» der Werkstatt' + (t.bereich ? " (" + esc(t.bereich) + ")" : "") + ". Du bekommst eine Mitteilung, sobald das Fahrzeug bereit ist.</p>";
       else if (o.status === "rak") act = '<button class="btn go" type="button" data-act="rakdone" data-id="' + o.id + '">' + (isTest(o) ? "Testfahrt abschliessen" : "RAK abschliessen") + '</button>';
       else if (o.status === "zugewiesen") act = rakActive(o) && (t.track === o.to || (isTest(o) && t.track === "861")) ? '<button class="btn pri" type="button" data-act="rakstart" data-id="' + o.id + '">' + (isTest(o) ? "Testfahrt starten" : "RAK starten") + '</button>' : '<button class="btn pri" type="button" data-act="start" data-id="' + o.id + '">' + startLabel(o) + "</button>";
       else if (!conf) act = '<button class="btn go" type="button" data-act="askconfirm" data-id="' + o.id + '">Durchführung bestätigen</button>';
       else act = '<div class="confirmBox"><div class="field"><label for="at-' + o.id + '">' + esc(t.name) + " steht jetzt auf</label><select id=\"at-" + o.id + '">' + trackOptions(o.to, null, o.type === "out") + '</select></div>' + (isHall(o.to) ? '<div class="field"><label for="sd-' + o.id + '">Seite in der Halle</label><select id="sd-' + o.id + '"><option value="S"' + ((o.side || t.side) !== "N" ? " selected" : "") + '>Süd</option><option value="N"' + ((o.side || t.side) === "N" ? " selected" : "") + '>Nord</option></select></div>' : "") + (orientKind(t) ? '<div class="field"><label for="or-' + o.id + '">' + (t.type === "car" ? "Welches " : "Welcher ") + orientKind(t)[1] + ' zeigt Richtung Süden?</label><select id="or-' + o.id + '"><option value="">Keine Angabe</option><option value="1"' + ((t.orient || o.orient) === 1 ? " selected" : "") + ">" + orientKind(t)[0] + ' 1</option><option value="2"' + ((t.orient || o.orient) === 2 ? " selected" : "") + ">" + orientKind(t)[0] + ' 2</option></select></div>' : "") + '<p class="meta">Die Meldung erscheint sofort im Gleisplan.</p><div class="row"><button class="btn go" type="button" data-act="doconfirm" data-id="' + o.id + '">Standort melden</button><button class="btn" type="button" data-act="cancelconfirm">Zurück</button></div></div>';
       return '<div class="oc s-' + o.status + ' p-' + o.prio + '">' + head(o) + route(o, true) + '<div class="meta">Von ' + esc(tshort(curFrom(o))) + " nach " + esc(tname(o.to)) + esc(afterText(o)) + (o.time ? " · bis " + esc(o.time) + " Uhr" : "") + "</div>" +
-        (o.note ? '<div class="note">' + esc(o.note) + "</div>" : "") + (w ? '<p class="warnp meta">' + esc(w) + "</p>" : "") + act + "</div>";
+        (o.note ? '<div class="note">' + esc(o.note) + "</div>" : "") + (w ? '<p class="warnp meta">' + esc(w) + "</p>" : "") + act + blkRow(o) + "</div>";
     }).join("") : '<div class="empty">' + (GROUPS.manoever.length ? "Keine Verschiebung für dich. Neue Aufträge der Koordination erscheinen hier sofort." : "Es sind noch keine Mitarbeiter in der Gruppe Manöver erfasst. Der Admin legt sie im Admin-Bereich an.") + "</div>";
     return h + "</div>";
   }
@@ -1811,8 +1842,9 @@ body.npopen #toast { z-index: 200; }
   }
   function weekKey() { var d = new Date(); d.setHours(12, 0, 0, 0); var wd = (d.getDay() + 6) % 7; d.setDate(d.getDate() - wd); return d.getFullYear() + "-" + ("0" + (d.getMonth() + 1)).slice(-2) + "-" + ("0" + d.getDate()).slice(-2); }
   function authValid() { return !!state.auth && allNames().indexOf(state.auth) >= 0 && state.authWeek === weekKey(); }
-  var APPVER = "v42";
+  var APPVER = "v43";
   var CHANGELOG = [
+    { d: "20.11.2026", t: "Fahrzeuge im Weg in der Halle (Gl 2 Süd/Nord): gleicher Bereich wird mitbestellt, anderer Bereich und Koordination werden informiert. Neuer Demo-Ablauf ab 06:00. Weitere Mitteilungen (überfällig, nicht möglich, Rundfrage, Abwesenheit, Gleis frei)." },
     { d: "20.11.2026", t: "Benachrichtigungen haben ein eigenes Fenster im Menü. Neu: Triebzug auf Gl 821 mit Knopf «Bereit» für die Werkstatt, Mitteilung an den Rangierer, Mitteilung bei neuem Fahrzeug im Bereich." },
     { d: "20.11.2026", t: "SBB-Logo als App-Symbol. Systemmitteilungen (Windows, Android, iPhone) für alle erlaubten Meldungen. Einstellungen pro Person im Menü." },
     { d: "20.11.2026", t: "Mitteilungen kürzer und ohne Auftragsnummer. Standard: Verschiebung angenommen (mit Zeit), ausgeführt, Testfahrt bewilligt. Jeder stellt unter der Glocke selbst ein, was er erhält." },
@@ -1973,8 +2005,11 @@ body.npopen #toast { z-index: 200; }
       if (!(admOK() || (bme && bereichOf(bme) === bt.bereich))) { toast("Nur Personen des Bereichs " + (bt.bereich || "") + " können Bereit melden."); return; }
       bt.bereit = true; bt.bereitBy = bme || ""; bt.bereitAt = nowT(); logEvent(bt.name + " ist bereit zum Verschieben (" + (bme || "Admin") + ")"); save(); updateAll(); toast(bt.name + " ist als bereit gemeldet. Der Rangierer wird informiert.");
     }
+    else if (act === "start" && o.type !== "in" && blockersFor(trainById(o.trainId)).length) { toast(blockHint(o)); }
+    else if (act === "blk") { var bsel = $("#bk-" + id); o.blocked = { by: state.auth || state.me || crewPerson() || "", reason: bsel ? bsel.value : "Anderer Grund", at: nowT() }; logEvent(o.id + ": Nicht möglich (" + o.blocked.reason + ")"); save(); updateAll(); toast("Gemeldet: Nicht möglich. Die Koordination wird informiert."); }
+    else if (act === "blkoff") { delete o.blocked; logEvent(o.id + ": wieder möglich"); save(); updateAll(); }
     else if (act === "start" && needReady(o)) { toast(trainById(o.trainId).name + " ist noch nicht bereit. Die Werkstatt muss zuerst «Bereit» melden."); }
-    else if (act === "start") { o.status = "unterwegs"; o.tStart = nowT(); o.from = trainById(o.trainId).track; logEvent(o.assignee + " startet " + trainById(o.trainId).name + " nach " + tshort(o.to)); save(); updateAll(); }
+    else if (act === "start") { delete o.blocked; o.status = "unterwegs"; o.tStart = nowT(); o.from = trainById(o.trainId).track; logEvent(o.assignee + " startet " + trainById(o.trainId).name + " nach " + tshort(o.to)); save(); updateAll(); }
     else if (act === "clk") {
       var v = b.getAttribute("data-v");
       shiftClock(function () {
@@ -2437,8 +2472,24 @@ body.npopen #toast { z-index: 200; }
     if (t.track === "RB" && draft.date < (t.future || todayStr())) { hint.className = "hint err"; hint.textContent = "Das Fahrzeug trifft erst am " + fmtDate(t.future) + " ein. Bitte ein späteres Datum wählen."; return; }
     if (ex) { hint.className = "hint err"; hint.textContent = "Für " + t.name + " läuft bereits " + ex.id + "."; return; }
     if (t.track === "RB" && draft.start && draft.kind === "move" && draft.start === draft.to) { hint.className = "hint err"; hint.textContent = "Startgleis und Zielgleis sind gleich."; return; }
+    var bl = draft.kind !== "in" ? blockersFor(t) : [], own = bl.filter(function (x) { return (x.bereich || "") === (draft.bereich || t.bereich || ""); }), fgn = bl.filter(function (x) { return own.indexOf(x) < 0; }), blkKey = t.id + ":" + bl.map(function (x) { return x.id; }).join(",");
+    if (own.length && draft.blkOk !== blkKey) {
+      draft.blkOk = blkKey; hint.className = "hint err";
+      hint.textContent = tshort(t.track) + ": " + own.map(function (x) { return x.name + " (" + sideName(x.side) + ")"; }).join(", ") + " steht im Weg und gehört zum gleichen Bereich. Nochmals auf «Bestellen» drücken, um " + (own.length > 1 ? "diese Fahrzeuge" : "das Fahrzeug") + " gleich mit umzustellen.";
+      return;
+    }
+    if (own.length) {
+      var okAll = own.every(function (x) { return !!freeSpot(x); });
+      if (!okAll) { hint.className = "hint err"; hint.textContent = "Zum Umstellen ist kein freies Gleis vorhanden."; return; }
+      own.forEach(function (x) {
+        var sp = freeSpot(x), bo = { id: "V-" + state.nextNo++, trainId: x.id, from: x.track, date: draft.date || todayStr(), type: "move", to: sp, prio: draft.prio, bereich: draft.bereich, time: draft.time || "", note: "Umstellen, weil " + x.name + " den Weg für " + t.name + " versperrt", status: "offen", t: nowT() };
+        state.orders.push(bo); logEvent(bo.id + " bestellt: " + x.name + " von " + tshort(bo.from) + " nach " + tshort(sp) + " (umstellen für " + t.name + ")");
+      });
+    }
+    draft.blkOk = "";
     var o = { id: "V-" + state.nextNo++, trainId: t.id, from: t.track, date: draft.date || todayStr(), type: draft.kind, to: draft.kind === "test" ? "821" : draft.kind === "rak" ? "1" : draft.kind === "out" ? "RB" : draft.to, after: draft.kind === "rak" || draft.kind === "test" ? draft.after : undefined, selfRun: draft.kind === "test" ? draft.selfRun === "self" : undefined, dur: draft.kind === "test" ? Math.max(5, parseInt(draft.dur, 10) || 30) : undefined, side: (draft.kind === "rak" || draft.kind === "test" ? draft.after !== "1" && isHall(draft.after) : draft.kind === "move" && isHall(draft.to)) ? draft.side : undefined, prio: draft.prio, bereich: draft.bereich, time: draft.time, note: draft.note.trim(), status: "offen", t: nowT() };
     if (t.track === "RB" && draft.start && draft.kind !== "out") o.startTrack = draft.start;
+    if (fgn.length) o.blockedBy = fgn.map(function (x) { return x.id; });
     if (orientKind(t) && draft.orient && draft.kind !== "out") o.orient = +draft.orient;
     if (o.startTrack && t.track === "RB" && !pendingIn(t.id)) {
       var wh = o.type === "move" ? "danach nach " + tshort(o.to) : o.type === "rak" ? "danach RAK auf Gl 1" : "danach Testfahrt";
@@ -2447,7 +2498,8 @@ body.npopen #toast { z-index: 200; }
     }
     state.orders.push(o); logEvent(isRak(o) ? o.id + " bestellt: RAK für " + t.name + " auf Gl 1" + afterText(o) + " (" + o.bereich + ")" : o.id + " bestellt: " + t.name + " von " + tshort(o.from) + " nach " + tshort(o.to) + " (" + o.bereich + ")");
     draft.note = ""; draft.time = ""; draft.prio = "Normal"; draft.start = ""; draft.orient = ""; save(); updateAll();
-    toast(o.id + " ist bei der Koordination eingegangen." + (isTest(o) ? " Die Sperre von Gl 821 und Gl 861 gilt erst, wenn die Testfahrt beginnt." : isRak(o) && rakBlocks(o).length ? " Die Sperre von Gl 1 und Gl 871 gilt erst, wenn die RAK beginnt." : ""), isRak(o) || isTest(o));
+    if (fgn.length) toast(fgn.map(function (x) { return x.name + " (" + (x.bereich || "ohne Bereich") + ")"; }).join(", ") + " steht im Weg. Koordination und der andere Bereich werden informiert.");
+    else toast(o.id + " ist bei der Koordination eingegangen." + (isTest(o) ? " Die Sperre von Gl 821 und Gl 861 gilt erst, wenn die Testfahrt beginnt." : isRak(o) && rakBlocks(o).length ? " Die Sperre von Gl 1 und Gl 871 gilt erst, wenn die RAK beginnt." : ""), isRak(o) || isTest(o));
   });
   var drag = null, rz = null;
   function cancelDrag() { if (!drag) return; drag.tile.classList.remove("dragging"); drag.tile.style.transform = ""; clearMarks(); drag = null; document.body.classList.remove("dragmode"); }
@@ -2820,7 +2872,7 @@ body.npopen #toast { z-index: 200; }
   try { NOTE.list = JSON.parse(localStorage.getItem("rb-notes") || "[]") || []; } catch (e) { NOTE.list = []; }
   setTimeout(function () { NOTE.armed = true; }, 6000);
   function realHM() { var d = new Date(); return ("0" + d.getHours()).slice(-2) + ":" + ("0" + d.getMinutes()).slice(-2); }
-  function snapOrders() { var m = {}; (state.orders || []).forEach(function (o) { m[o.id] = { s: o.status, a: o.assignee || "", t: o.time || "" }; }); (state.trains || []).forEach(function (t) { m["T:" + t.id] = { k: t.track, b: !!t.bereit, br: t.bereich || "" }; }); return m; }
+  function snapOrders() { var m = {}; (state.orders || []).forEach(function (o) { m[o.id] = { s: o.status, a: o.assignee || "", t: o.time || "", bl: o.blocked ? o.blocked.at : "" }; }); (state.absent || []).forEach(function (a) { m["A:" + a.id] = 1; }); (state.trains || []).forEach(function (t) { m["T:" + t.id] = { k: t.track, b: !!t.bereit, br: t.bereich || "" }; }); return m; }
   function noteSave() { try { localStorage.setItem("rb-notes", JSON.stringify(NOTE.list.slice(0, 30))); } catch (e) { /* ohne Speicher */ } }
   function beep() { try { var AC = window.AudioContext || window.webkitAudioContext; if (!AC) return; NOTE.ctx = NOTE.ctx || new AC(); var c = NOTE.ctx, os = c.createOscillator(), g = c.createGain(); os.frequency.value = 880; g.gain.value = 0.06; os.connect(g); g.connect(c.destination); os.start(); os.stop(c.currentTime + 0.2); } catch (e) { /* kein Ton */ } }
   document.addEventListener("pointerdown", function () { try { var AC = window.AudioContext || window.webkitAudioContext; if (AC) { NOTE.ctx = NOTE.ctx || new AC(); if (NOTE.ctx.resume) NOTE.ctx.resume(); } } catch (e) { /* */ } }, { once: true });
@@ -2849,8 +2901,8 @@ body.npopen #toast { z-index: 200; }
   function npModal(on) { var md = $("#npModal"); if (!md) return; md.hidden = !on; document.body.classList.toggle("npopen", !!on); if (on) { setMenu(false); renderNpBox(); } }
   document.addEventListener("click", function (e) { var a = e.target.closest && e.target.closest("[data-act]"); a = a && a.getAttribute("data-act"); if (a === "npopen") npModal(true); else if (a === "npclose" || (e.target.id === "npModal")) npModal(false); });
   document.addEventListener("keydown", function (e) { if (e.key === "Escape") npModal(false); });
-  var NP_DEF = { acc: true, done: true, test: true, rb821: true, bereit: true, neufz: true, neu: false, zuw: false, zur: false };
-  var NP_LBL = [["acc", "Verschiebung angenommen, mit bestätigter Zeit (Werkstatt)"], ["done", "Verschiebung ausgeführt (Werkstatt)"], ["test", "Testfahrt bewilligt (Werkstatt)"], ["rb821", "Triebzug aus dem RB auf Gl 821 gestellt (mein Bereich)"], ["bereit", "Fahrzeug ist bereit zum Verschieben (Rangierer)"], ["neufz", "Neues Fahrzeug in meinem Bereich (Dispo)"], ["neu", "Neuer Auftrag (Koordination)"], ["zuw", "Mir zugewiesen (Rangierer)"], ["zur", "Auftrag zurückgezogen (Koordination)"]];
+  var NP_DEF = { acc: true, done: true, test: true, rb821: true, bereit: true, neufz: true, ueber: true, nein: true, ausg: true, abw: true, frei: true, weg: true, neu: false, zuw: false, zur: false };
+  var NP_LBL = [["acc", "Verschiebung angenommen, mit bestätigter Zeit (Werkstatt)"], ["done", "Verschiebung ausgeführt (Werkstatt)"], ["test", "Testfahrt bewilligt (Werkstatt)"], ["rb821", "Triebzug aus dem RB auf Gl 821 gestellt (mein Bereich)"], ["bereit", "Fahrzeug ist bereit zum Verschieben (Rangierer)"], ["neufz", "Neues Fahrzeug in meinem Bereich (Dispo)"], ["weg", "Ein Fahrzeug steht im Weg (Koordination, betroffener Bereich)"], ["ueber", "Auftrag überfällig (Koordination)"], ["nein", "Rangierer meldet «Nicht möglich» (Koordination, Werkstatt)"], ["ausg", "Rundfrage Ausgang offen (Werkstatt)"], ["abw", "Abwesenheit mit offenen Aufträgen (Koordination)"], ["frei", "Gleis für Testfahrt oder RAK wieder frei (Werkstatt)"], ["neu", "Neuer Auftrag (Koordination)"], ["zuw", "Mir zugewiesen (Rangierer)"], ["zur", "Auftrag zurückgezogen (Koordination)"]];
   function npAll() { try { return JSON.parse(localStorage.getItem("rb-noteprefs") || "{}") || {}; } catch (e) { return {}; } }
   function npGet(k) { var u = npAll()[state.auth || state.me || ""] || {}; return u[k] === undefined ? NP_DEF[k] : !!u[k]; }
   function npSet(k, v) { var a = npAll(), me = state.auth || state.me || ""; a[me] = a[me] || {}; a[me][k] = !!v; try { localStorage.setItem("rb-noteprefs", JSON.stringify(a)); } catch (e) { /* ohne Speicher */ } }
@@ -2867,10 +2919,16 @@ body.npopen #toast { z-index: 200; }
       if (p.k === "RB" && t.track === "821" && t.wait821 && myB && t.bereich === myB && npGet("rb821")) pushNote(t.name + " steht auf Gl 821. Bitte «Bereit» melden, sobald das Fahrzeug verschoben werden darf.");
       if (!p.b && t.bereit && npGet("bereit") && state.orders.some(function (o) { return o.trainId === t.id && o.assignee === me && isOpenOrder(o); })) pushNote(t.name + " ist bereit zum Verschieben (Gl 821).");
     });
+    (state.absent || []).forEach(function (a) {
+      if (b["A:" + a.id] || !isC || !npGet("abw") || a.to < todayStr()) return;
+      var n = (state.orders || []).filter(function (o) { return o.assignee === a.name && isOpenOrder(o); }).length;
+      if (n) pushNote(a.name + " ist abwesend (" + a.kind + "), " + n + (n === 1 ? " Auftrag ist" : " Aufträge sind") + " noch offen.");
+    });
     if (newFz === 1) pushNote(newFzTxt); else if (newFz > 1) pushNote(newFz + " neue Fahrzeuge in deinem Bereich " + myB);
     (state.orders || []).forEach(function (o) {
       var p = b[o.id], tr = trainById(o.trainId), nm = tr ? tr.name : "Fahrzeug", mineW = isW && myB && myB === o.bereich, tm = o.time ? " um " + o.time + " Uhr" : "";
       if (!p) {
+        (o.blockedBy || []).forEach(function (bid) { var tb = trainById(bid); if (tb && npGet("weg") && (isC || (myB && tb.bereich === myB))) pushNote(tb.name + " (" + tshort(tb.track) + ", " + sideName(tb.side) + ") steht " + nm + " im Weg. Bitte umstellen."); });
         if (o.assignee === me && o.status === "zugewiesen" && npGet("zuw")) pushNote("Dir zugewiesen: " + nm + " nach " + tshort(o.to) + tm);
         else if (o.status === "offen" && isC && npGet("neu")) pushNote("Neuer Auftrag: " + nm + " nach " + tshort(o.to) + (o.bereich ? " (" + o.bereich + ")" : ""));
         return;
@@ -2881,8 +2939,28 @@ body.npopen #toast { z-index: 200; }
       if (o.assignee === me && p.a !== me && o.status === "zugewiesen" && p.s !== "offen" && npGet("zuw")) pushNote("Dir zugewiesen: " + nm + " nach " + tshort(o.to) + tm);
       if (p.s !== "erledigt" && o.status === "erledigt" && mineW && npGet("done")) pushNote(oKind(o) + " ausgeführt: " + nm + " steht auf " + tshort(o.actual || o.to));
       if (p.s !== "storniert" && o.status === "storniert" && isC && npGet("zur")) pushNote("Zurückgezogen: " + nm);
+      if (!p.bl && o.blocked && (isC || mineW) && npGet("nein")) pushNote("Nicht möglich: " + nm + ", " + o.blocked.reason + (o.blocked.by ? " (" + o.blocked.by + ")" : ""));
+      if (p.s !== "erledigt" && o.status === "erledigt" && (isTest(o) || isRak(o)) && isW && myB && npGet("frei") && state.orders.some(function (x) { return x.id !== o.id && (isTest(x) || isRak(x)) && x.bereich === myB && (x.status === "offen" || x.status === "zugewiesen"); })) pushNote((isTest(o) ? "Testfahrt" : "RAK") + " beendet: " + (isTest(o) ? "Gl 821 und Gl 861" : "Gl 1 und Gl 871") + " sind wieder frei.");
     });
   }
+  function seenOnce(k) {
+    var d = todayStr(), o; try { o = JSON.parse(localStorage.getItem("rb-seen") || "{}"); } catch (e) { o = {}; }
+    if (o.d !== d) o = { d: d, k: [] }; if (o.k.indexOf(k) >= 0) return false; o.k.push(k); try { localStorage.setItem("rb-seen", JSON.stringify(o)); } catch (e) { /* */ } return true;
+  }
+  function noteTick() {
+    if (!NOTE.armed) return; var me = state.auth || state.me; if (!me) return;
+    var v = myViews0(), isC = v.indexOf("coord") >= 0, isW = v.indexOf("order") >= 0, myB = bereichOf(me), d = nowD(), hm = d.getHours() * 60 + d.getMinutes();
+    if (isC && npGet("ueber")) (state.orders || []).forEach(function (o) {
+      if ((o.status !== "offen" && o.status !== "zugewiesen") || !o.time || odate(o) !== todayStr()) return;
+      var tm = o.time.split(":"); if (hm < +tm[0] * 60 + +tm[1] + 5) return;
+      if (seenOnce("ueber|" + o.id)) { var tr = trainById(o.trainId); pushNote("Überfällig: " + (tr ? tr.name : "Fahrzeug") + " nach " + tshort(o.to) + ", gewünscht um " + o.time + " Uhr, noch nicht gestartet."); }
+    });
+    if (isW && myB && npGet("ausg") && pollB().indexOf(myB) >= 0) {
+      var st = pollOpen(), ans = (state.poll[todayStr()] || {})[myB];
+      if (st.open && !ans) { if (hm >= 690 ? seenOnce("ausg2") : seenOnce("ausg1")) pushNote(hm >= 690 ? "Rundfrage Ausgang: nur noch bis 12:00 Uhr offen, " + myB + " hat noch nicht geantwortet." : "Rundfrage Ausgang ist offen (bis 12:00 Uhr). Bitte für " + myB + " antworten."); }
+    }
+  }
+  setInterval(noteTick, 20000);
   function renderBell() {
     var n = NOTE.list.filter(function (x) { return !x.read; }).length, bd = $("#bellN"); if (bd) { bd.textContent = n > 9 ? "9+" : String(n); bd.hidden = !n; }
     var pn = $("#notePanel"); if (!pn || pn.hidden) return;
