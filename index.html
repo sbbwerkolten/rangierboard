@@ -1025,8 +1025,13 @@ body.dragmode { user-select: none; cursor: grabbing; }
   function colOf(L, id) { return COLS.filter(function (c) { return L[c].indexOf(id) >= 0; })[0]; }
   function ensurePos(L) {
     L.pos = L.pos || {}; var bottom = 0;
-    COLS.forEach(function (c) { L[c].forEach(function (id) { var q = L.pos[id]; if (q) { var e = tileEls[id]; bottom = Math.max(bottom, q.y + (q.h || (e && e.offsetHeight) || 120)); } }); });
-    COLS.forEach(function (c) { L[c].forEach(function (id) { if (!L.pos[id]) { L.pos[id] = { x: 0, y: bottom + 16, w: 410 }; bottom += 176; } }); });
+    function put(id, q) { var e = tileEls[id]; if (e && e.style && e.parentNode && e.parentNode.id === "freeArea") { e.style.left = q.x + "px"; e.style.top = q.y + "px"; } }
+    COLS.forEach(function (c) { L[c].forEach(function (id) { var q = L.pos[id], e = tileEls[id]; if (q && !q.auto && e && !e.hidden) bottom = Math.max(bottom, q.y + (q.h || e.offsetHeight || 120)); }); });
+    COLS.forEach(function (c) { L[c].forEach(function (id) {
+      var q = L.pos[id], e = tileEls[id], hid = !!(e && e.hidden);
+      if (!q) { q = L.pos[id] = { x: 0, y: bottom + 16, w: 410 }; if (hid) q.auto = true; else bottom += 176; }
+      else if (q.auto && !hid && e) { q.x = 0; q.y = bottom + 16; delete q.auto; bottom += 176; put(id, q); }
+    }); });
   }
   function freezeLayout() {
     var L = normLayout(); if (L.frozen) return L;
@@ -1057,7 +1062,7 @@ body.dragmode { user-select: none; cursor: grabbing; }
   }
   function fitCanvas() {
     var app = document.querySelector(".app"), fa = $("#freeArea"); if (!app || !fa) return; var mb = 0;
-    if (!drag && !rz) { try { packBusy = false; packFree(curLayout(), null); } catch (x) {} }
+    if (!drag && !rz) { try { packBusy = false; var L0 = curLayout(); if (wide.matches && L0.frozen) ensurePos(L0); packFree(L0, null); } catch (x) {} }
     if (wide.matches) Array.prototype.forEach.call(fa.children, function (c) { if (!c.hidden) mb = Math.max(mb, c.offsetTop + c.offsetHeight); });
     app.style.minHeight = mb ? (mb + 24) + "px" : "";
   }
