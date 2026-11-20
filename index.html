@@ -375,6 +375,9 @@ body.dragmode { user-select: none; cursor: grabbing; }
 .notep { width: min(360px, calc(100vw - 32px)); max-height: 70vh; overflow: auto; }
 .notep .ni { padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; font-size: 13px; line-height: 1.4; background: var(--bg); }
 .notep .ni.new { border-color: var(--accent); background: var(--acc-bg); }
+.npref { border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; display: grid; gap: 6px; font-size: 13px; }
+.npref summary { cursor: pointer; }
+.npref .qchk { display: flex; gap: 8px; align-items: flex-start; line-height: 1.35; }
 .notep .ni small { display: block; color: var(--ink-2); font-size: 11px; }
 </style>
 
@@ -393,6 +396,7 @@ body.dragmode { user-select: none; cursor: grabbing; }
         <button class="btn" type="button" data-act="impo" id="impoBtn">Einstellungen und Layouts importieren</button>
         <div class="sugform" id="impoForm" hidden><label class="meta" for="impo-t">Exportierten Text hier einfügen. Bestehende Einstellungen und Layouts werden ersetzt.</label><textarea id="impo-t" rows="5" placeholder="Text einfügen …"></textarea><button class="btn pri small" type="button" data-act="impoapply">Übernehmen</button></div>
         <div class="sugform" id="sugForm" hidden><label class="meta" for="sug-t">Was können wir besser machen?</label><textarea id="sug-t" rows="4" placeholder="Dein Vorschlag …"></textarea><button class="btn pri small" type="button" data-act="sugsend">Senden</button></div>
+        <div class="menusec" id="npBox" hidden></div>
         <div class="meta" id="syncInfo" hidden></div>
         <div class="wm" aria-hidden="true">Pascal Rohrbach</div>
       </div></div>
@@ -1773,8 +1777,10 @@ body.dragmode { user-select: none; cursor: grabbing; }
   }
   function weekKey() { var d = new Date(); d.setHours(12, 0, 0, 0); var wd = (d.getDay() + 6) % 7; d.setDate(d.getDate() - wd); return d.getFullYear() + "-" + ("0" + (d.getMonth() + 1)).slice(-2) + "-" + ("0" + d.getDate()).slice(-2); }
   function authValid() { return !!state.auth && allNames().indexOf(state.auth) >= 0 && state.authWeek === weekKey(); }
-  var APPVER = "v39";
+  var APPVER = "v41";
   var CHANGELOG = [
+    { d: "20.11.2026", t: "SBB-Logo als App-Symbol. Systemmitteilungen (Windows, Android, iPhone) für alle erlaubten Meldungen. Einstellungen pro Person im Menü." },
+    { d: "20.11.2026", t: "Mitteilungen kürzer und ohne Auftragsnummer. Standard: Verschiebung angenommen (mit Zeit), ausgeführt, Testfahrt bewilligt. Jeder stellt unter der Glocke selbst ein, was er erhält." },
     { d: "20.11.2026", t: "Neu: Verbindungsanzeige, Mitteilungen (Glocke), Offline-Nachmeldung, Demo-Ablauf mit Drehbuch, Fahrzeuge und Backup im Admin. Kst 630 bekommt in der Demo nur Triebzüge." },
     { d: "20.11.2026", t: "Demo-Fahrzeuge und Demo-Uhr starten nicht mehr von selbst: Die Uhr läuft nach dem Neuladen wieder in Echtzeit, beendete Demo-Fahrzeuge kommen nicht zurück." },
     { d: "20.11.2026", t: "Neue Startseite mit Gleisplan. Anmeldung bleibt bis Ende der Arbeitswoche bestehen. Layout-Export und -Import nur noch für den Admin." },
@@ -1882,11 +1888,11 @@ body.dragmode { user-select: none; cursor: grabbing; }
     Object.keys(FTILES).forEach(function (id) { var el = tileEl(id), box = el.querySelector(".tcontent"), c = parts[id] || ""; box.innerHTML = c; el.hidden = !c.trim(); });
   }
   var sugCol = null;
-  function setMenu(on) { ui.menu = !!on; var m = $("#menuPanel"), bt = $("#menuBtn"); if (m) m.hidden = !on; if (bt) bt.setAttribute("aria-expanded", on ? "true" : "false"); }
+  function setMenu(on) { if (on && typeof renderNpBox === "function") renderNpBox(); ui.menu = !!on; var m = $("#menuPanel"), bt = $("#menuBtn"); if (m) m.hidden = !on; if (bt) bt.setAttribute("aria-expanded", on ? "true" : "false"); }
   document.addEventListener("click", function (e) { if (ui.menu && e.target.closest && !e.target.closest("#menuPanel, #menuBtn")) setMenu(false); });
   document.addEventListener("keydown", function (e) { if (e.key === "Escape") { if (ui.menu) setMenu(false); if (drag) { cancelDrag(); } } });
   function renderLogo() { var el = $("#logoSlot"); if (!el) return; if (state.logo) { el.innerHTML = '<img alt="Logo" src="' + state.logo + '">'; el.hidden = false; } else { el.innerHTML = ""; el.hidden = true; } }
-  function updateAll() { if (coverVisible()) renderCover(); renderLogo(); cleanupGone(); renderExtraTiles(); renderClock(); renderTabs(); renderPipe(); renderPanel(); updateMap(); renderDetail(); renderLog(); if (coverVisible()) cvRefresh(); }
+  function updateAll() { if (coverVisible()) renderCover(); if (typeof renderNpBox === "function") renderNpBox(); renderLogo(); cleanupGone(); renderExtraTiles(); renderClock(); renderTabs(); renderPipe(); renderPanel(); updateMap(); renderDetail(); renderLog(); if (coverVisible()) cvRefresh(); }
   function setView(v) { if (v === "map" && wide.matches) v = "order"; ui.view = v; renderTabs(); renderPanel(); }
 
   /* ---------- Toast ---------- */
@@ -2779,19 +2785,47 @@ body.dragmode { user-select: none; cursor: grabbing; }
   function pushNote(txt) {
     NOTE.list.unshift({ ts: Date.now(), txt: txt, read: false }); NOTE.list = NOTE.list.slice(0, 30); noteSave(); renderBell();
     toast(txt); beep(); try { if (navigator.vibrate) navigator.vibrate(120); } catch (e) { /* */ }
-    try { if (window.Notification && Notification.permission === "granted" && document.hidden) new Notification("Rangierboard Olten", { body: txt }); } catch (e) { /* */ }
+    sysNote(txt);
   }
+  function sysNote(txt) {
+    try {
+      if (!window.Notification || Notification.permission !== "granted") return;
+      var opt = { body: txt, icon: "icon-192.png", badge: "icon-192.png", tag: "rb-" + Date.now(), renotify: true, vibrate: [120, 60, 120] };
+      if (navigator.serviceWorker && navigator.serviceWorker.getRegistration) {
+        navigator.serviceWorker.getRegistration().then(function (r) { if (r && r.showNotification) r.showNotification("Rangierboard Olten", opt); else new Notification("Rangierboard Olten", opt); }).catch(function () { try { new Notification("Rangierboard Olten", opt); } catch (e) { /* */ } });
+      } else new Notification("Rangierboard Olten", opt);
+    } catch (e) { /* keine Systemmitteilung möglich */ }
+  }
+  function renderNpBox() {
+    var bx = $("#npBox"); if (!bx) return; bx.hidden = !state.auth; if (!state.auth) return;
+    if (bx.contains(document.activeElement) && document.activeElement.tagName === "INPUT") return;
+    var perm = window.Notification ? Notification.permission : "none";
+    bx.innerHTML = '<b>Mitteilungen für ' + esc(state.auth) + "</b>" + NP_LBL.map(function (x) { return '<label class="qchk"><input type="checkbox" data-np="' + x[0] + '"' + (npGet(x[0]) ? " checked" : "") + "> " + esc(x[1]) + "</label>"; }).join("") +
+      (perm === "granted" ? '<p class="meta">Mitteilungen auf diesem Gerät sind erlaubt.</p><button class="btn small" type="button" data-act="notetest">Testmitteilung senden</button>' : perm === "denied" ? '<p class="meta">Mitteilungen sind in den Einstellungen dieses Geräts oder Browsers blockiert. Dort kannst du sie wieder erlauben.</p>' : perm === "default" ? '<button class="btn pri small" type="button" data-act="noteperm">Mitteilungen auf diesem Gerät erlauben</button>' : '<p class="meta">Dieses Gerät oder dieser Browser unterstützt keine Systemmitteilungen. Auf dem iPhone zuerst die App zum Home-Bildschirm hinzufügen.</p>');
+  }
+  var NP_DEF = { acc: true, done: true, test: true, neu: false, zuw: false, zur: false };
+  var NP_LBL = [["acc", "Verschiebung angenommen, mit bestätigter Zeit (Werkstatt)"], ["done", "Verschiebung ausgeführt (Werkstatt)"], ["test", "Testfahrt bewilligt (Werkstatt)"], ["neu", "Neuer Auftrag (Koordination)"], ["zuw", "Mir zugewiesen (Rangierer)"], ["zur", "Auftrag zurückgezogen (Koordination)"]];
+  function npAll() { try { return JSON.parse(localStorage.getItem("rb-noteprefs") || "{}") || {}; } catch (e) { return {}; } }
+  function npGet(k) { var u = npAll()[state.auth || state.me || ""] || {}; return u[k] === undefined ? NP_DEF[k] : !!u[k]; }
+  function npSet(k, v) { var a = npAll(), me = state.auth || state.me || ""; a[me] = a[me] || {}; a[me][k] = !!v; try { localStorage.setItem("rb-noteprefs", JSON.stringify(a)); } catch (e) { /* ohne Speicher */ } }
+  function oKind(o) { return o.type === "in" ? "Einfahrt" : o.type === "out" ? "Ausfahrt" : o.type === "rak" ? "RAK" : "Verschiebung"; }
   function notifyDiff(b) {
     if (!NOTE.armed || !b) return;
     var me = state.auth || state.me; if (!me) return;
     var v = myViews0(), isC = v.indexOf("coord") >= 0, isW = v.indexOf("order") >= 0, myB = bereichOf(me);
     (state.orders || []).forEach(function (o) {
-      var p = b[o.id], tr = trainById(o.trainId), nm = tr ? tr.name : o.id;
-      if (!p) { if (o.assignee === me && o.status === "zugewiesen") { pushNote("Dir zugewiesen: " + o.id + ", " + nm + " nach " + tshort(o.to)); return; } if (o.status === "offen" && isC) pushNote("Neuer Auftrag " + o.id + ": " + nm + " nach " + tshort(o.to) + (o.bereich ? " (" + o.bereich + ")" : "")); return; }
-      if (o.assignee === me && p.a !== me && o.status === "zugewiesen") pushNote("Dir zugewiesen: " + o.id + ", " + nm + " nach " + tshort(o.to) + (o.time ? " um " + o.time + " Uhr" : ""));
-      if (p.t !== (o.time || "") && o.status !== "erledigt" && o.status !== "storniert" && ((isW && myB && myB === o.bereich) || o.assignee === me)) pushNote("Zeit geändert: " + o.id + " (" + nm + ") von " + (p.t || "keine Zeit") + " auf " + (o.time || "keine Zeit") + (o.time ? " Uhr" : ""));
-      if (p.s !== "erledigt" && o.status === "erledigt" && isW && myB && myB === o.bereich) pushNote("Erledigt: " + o.id + ", " + nm + " steht auf " + tshort(o.actual || o.to));
-      if (p.s !== "storniert" && o.status === "storniert" && isC) pushNote(o.id + " wurde zurückgezogen (" + nm + ")");
+      var p = b[o.id], tr = trainById(o.trainId), nm = tr ? tr.name : "Fahrzeug", mineW = isW && myB && myB === o.bereich, tm = o.time ? " um " + o.time + " Uhr" : "";
+      if (!p) {
+        if (o.assignee === me && o.status === "zugewiesen" && npGet("zuw")) pushNote("Dir zugewiesen: " + nm + " nach " + tshort(o.to) + tm);
+        else if (o.status === "offen" && isC && npGet("neu")) pushNote("Neuer Auftrag: " + nm + " nach " + tshort(o.to) + (o.bereich ? " (" + o.bereich + ")" : ""));
+        return;
+      }
+      if (isTest(o) && p.s === "offen" && o.status === "zugewiesen" && mineW && npGet("test")) pushNote("Testfahrt bewilligt: " + nm);
+      else if (!isTest(o) && p.s === "offen" && o.status === "zugewiesen" && mineW && npGet("acc")) pushNote(oKind(o) + " angenommen: " + nm + " nach " + tshort(o.to) + ", bestätigt" + (o.time ? " für " + o.time + " Uhr" : " ohne feste Zeit"));
+      else if (p.t !== (o.time || "") && p.s !== "offen" && o.status === "zugewiesen" && mineW && npGet("acc")) pushNote("Neue Zeit für " + nm + ": " + (o.time ? o.time + " Uhr" : "keine feste Zeit") + (p.t ? " (vorher " + p.t + " Uhr)" : ""));
+      if (o.assignee === me && p.a !== me && o.status === "zugewiesen" && p.s !== "offen" && npGet("zuw")) pushNote("Dir zugewiesen: " + nm + " nach " + tshort(o.to) + tm);
+      if (p.s !== "erledigt" && o.status === "erledigt" && mineW && npGet("done")) pushNote(oKind(o) + " ausgeführt: " + nm + " steht auf " + tshort(o.actual || o.to));
+      if (p.s !== "storniert" && o.status === "storniert" && isC && npGet("zur")) pushNote("Zurückgezogen: " + nm);
     });
   }
   function renderBell() {
@@ -2800,9 +2834,11 @@ body.dragmode { user-select: none; cursor: grabbing; }
     var perm = window.Notification ? Notification.permission : "denied";
     pn.innerHTML = '<div class="row"><b style="flex:1">Mitteilungen</b>' + (NOTE.list.length ? '<button class="btn small" type="button" data-act="noteclr">Leeren</button>' : "") + "</div>" +
       (NOTE.list.length ? NOTE.list.map(function (x) { var d = new Date(x.ts); return '<div class="ni' + (x.read ? "" : " new") + '"><small>' + ("0" + d.getHours()).slice(-2) + ":" + ("0" + d.getMinutes()).slice(-2) + "</small>" + esc(x.txt) + "</div>"; }).join("") : '<div class="meta">Noch keine Mitteilungen. Hier erscheinen neue Aufträge, Zuweisungen und Zeitänderungen.</div>') +
+      '<p class="meta">Was du erhältst, stellst du im Menü ☰ unter «Mitteilungen» ein.</p>' +
       (window.Notification && perm === "default" ? '<button class="btn small" type="button" data-act="noteperm">Mitteilungen auf diesem Gerät erlauben</button>' : "") +
       '<p class="meta">Mitteilungen kommen, solange die App offen oder im Hintergrund ist.</p>';
   }
+  document.addEventListener("change", function (e) { var k = e.target.getAttribute && e.target.getAttribute("data-np"); if (k) npSet(k, e.target.checked); });
   function setBell(on) {
     var pn = $("#notePanel"); if (!pn) return; pn.hidden = !on;
     if (on) { renderBell(); NOTE.list.forEach(function (x) { x.read = true; }); noteSave(); var bd = $("#bellN"); if (bd) bd.hidden = true; setTimeout(function () { var q = $("#notePanel"); if (q && !q.hidden) q.querySelectorAll(".ni.new").forEach(function (e) { e.classList.add("new"); }); }, 0); }
@@ -2811,7 +2847,8 @@ body.dragmode { user-select: none; cursor: grabbing; }
     var b = e.target.closest && e.target.closest("[data-act]"), a = b && b.getAttribute("data-act"), pn = $("#notePanel");
     if (a === "bell") { setBell(pn && pn.hidden); return; }
     if (a === "noteclr") { NOTE.list = []; noteSave(); renderBell(); return; }
-    if (a === "noteperm") { try { Notification.requestPermission().then(function () { renderBell(); }); } catch (x) { /* */ } return; }
+    if (a === "noteperm") { try { Notification.requestPermission().then(function () { renderBell(); renderNpBox(); }); } catch (x) { /* */ } return; }
+    if (a === "notetest") { sysNote("Das ist eine Testmitteilung. So sehen neue Meldungen aus."); toast("Testmitteilung gesendet."); return; }
     if (pn && !pn.hidden && !(e.target.closest && e.target.closest("#notePanel, #bellBtn"))) pn.hidden = true;
   });
   /* ---- Verbindungsanzeige ---- */
